@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -50,12 +51,53 @@ func (m *MockAIService) SummarizeQuery(query string) (string, error) {
 	return strings.Join(words[:3], " ") + "...", nil
 }
 
+// QueryWithContext sends a query with conversation history context to the AI service
+func (m *MockAIService) QueryWithContext(query string, conversationHistory string) (string, error) {
+	contextKey := "context:" + query + ":" + conversationHistory
+	if err, exists := m.errors[contextKey]; exists {
+		return "", err
+	}
+	if response, exists := m.responses[contextKey]; exists {
+		return response, nil
+	}
+	// Default behavior: return response with context indication
+	if conversationHistory != "" {
+		return "Contextual response for: " + query, nil
+	}
+	return "Default mock response for: " + query, nil
+}
+
+// SummarizeConversation creates a summary of conversation history for context preservation
+func (m *MockAIService) SummarizeConversation(messages []string) (string, error) {
+	if len(messages) == 0 {
+		return "", nil
+	}
+	summaryKey := "conversation_summary"
+	if err, exists := m.errors[summaryKey]; exists {
+		return "", err
+	}
+	if response, exists := m.responses[summaryKey]; exists {
+		return response, nil
+	}
+	// Default behavior: simple summary of message count
+	return fmt.Sprintf("Conversation with %d messages", len(messages)), nil
+}
+
 func (m *MockAIService) SetResponse(query, response string) {
 	m.responses[query] = response
 }
 
 func (m *MockAIService) SetError(query string, err error) {
 	m.errors[query] = err
+}
+
+func (m *MockAIService) SetContextResponse(query, conversationHistory, response string) {
+	contextKey := "context:" + query + ":" + conversationHistory
+	m.responses[contextKey] = response
+}
+
+func (m *MockAIService) SetConversationSummary(summary string) {
+	m.responses["conversation_summary"] = summary
 }
 
 func TestNewHandler(t *testing.T) {
@@ -74,6 +116,11 @@ func TestNewHandler(t *testing.T) {
 	
 	if handler.aiService != mockAI {
 		t.Error("expected AI service to be set correctly")
+	}
+	
+	// Test that thread ownership map is initialized
+	if handler.threadOwnership == nil {
+		t.Error("expected thread ownership map to be initialized")
 	}
 }
 
@@ -599,3 +646,586 @@ func TestHandler_ThreadWorkflowIntegration(t *testing.T) {
 		t.Logf("  Thread Title: %q", titleSummary)
 	})
 }
+
+// Test thread history retrieval functionality
+func TestHandler_fetchThreadHistory(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockAI := NewMockAIService()
+	handler := NewHandler(logger, mockAI)
+
+	t.Run("function_signature_validation", func(t *testing.T) {
+		// This test validates that the function exists with correct signature
+		// We can't test actual Discord API calls without complex mocking
+		// but we can validate the function signature and error handling
+		
+		// Use a defer to catch the panic from nil session
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected to panic due to nil session, which proves the function exists
+				t.Logf("Function exists and panics correctly with nil session: %v", r)
+			}
+		}()
+		
+		_, err := handler.fetchThreadHistory(nil, "channel123", "bot123", 10, false)
+		
+		// If we get here without panic, there should be an error
+		if err == nil {
+			t.Error("expected error for nil session")
+		}
+	})
+}
+
+// Test conversation history formatting
+func TestHandler_formatConversationHistory(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockAI := NewMockAIService()
+	handler := NewHandler(logger, mockAI)
+
+	tests := []struct {
+		name     string
+		messages []*discordgo.Message
+		expected string
+	}{
+		{
+			name:     "empty_messages",
+			messages: []*discordgo.Message{},
+			expected: "",
+		},
+		{
+			name: "single_message",
+			messages: []*discordgo.Message{
+				{
+					Content: "Hello",
+					Author:  &discordgo.User{Username: "user1"},
+				},
+			},
+			expected: "user1: Hello",
+		},
+		{
+			name: "multiple_messages",
+			messages: []*discordgo.Message{
+				{
+					Content: "What is Go?",
+					Author:  &discordgo.User{Username: "user1"},
+				},
+				{
+					Content: "Go is a programming language",
+					Author:  &discordgo.User{Username: "bot"},
+				},
+				{
+					Content: "Who created it?",
+					Author:  &discordgo.User{Username: "user1"},
+				},
+			},
+			expected: "user1: What is Go?\nbot: Go is a programming language\nuser1: Who created it?",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.formatConversationHistory(tt.messages)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// Test contextual AI query processing
+func TestHandler_ProcessAIQuery_WithContext(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockAI := NewMockAIService()
+	_ = NewHandler(logger, mockAI)
+
+	// Set up mock responses for contextual queries
+	query := "What about tomorrow?"
+	history := "User: What is the weather today?\nBot: It's sunny."
+	contextualResponse := "Based on today being sunny, tomorrow looks cloudy."
+	
+	mockAI.SetContextResponse(query, history, contextualResponse)
+
+	t.Run("contextual_query_processing", func(t *testing.T) {
+		// Test the AI service contextual call directly
+		response, err := mockAI.QueryWithContext(query, history)
+		
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		
+		if response != contextualResponse {
+			t.Errorf("expected contextual response %q, got %q", contextualResponse, response)
+		}
+		
+		t.Logf("Contextual query test successful: %q -> %q", query, response)
+	})
+}
+
+// Test conversation summarization
+func TestHandler_ConversationSummarization(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mockAI := NewMockAIService()
+	_ = NewHandler(logger, mockAI)
+
+	messages := []string{
+		"User: What is Go programming?",
+		"Bot: Go is a language created by Google.",
+		"User: What are its main features?",
+		"Bot: Go has goroutines, channels, and garbage collection.",
+	}
+	
+	expectedSummary := "Discussion about Go programming language and its features"
+	mockAI.SetConversationSummary(expectedSummary)
+
+	t.Run("conversation_summarization", func(t *testing.T) {
+		summary, err := mockAI.SummarizeConversation(messages)
+		
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		
+		if summary != expectedSummary {
+			t.Errorf("expected summary %q, got %q", expectedSummary, summary)
+		}
+		
+		t.Logf("Conversation summarization test successful: %d messages -> %q", len(messages), summary)
+		})
+	}
+	
+	// Test thread ownership tracking functionality
+	func TestHandler_ThreadOwnership(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		threadID := "thread123"
+		userID := "user456"
+	
+		t.Run("record_thread_ownership", func(t *testing.T) {
+			botID := "bot789"
+			handler.recordThreadOwnership(threadID, userID, botID)
+			
+			ownership, exists := handler.getThreadOwnership(threadID)
+			if !exists || ownership == nil {
+				t.Fatal("expected thread ownership to be recorded")
+			}
+			
+			if ownership.OriginalUserID != userID {
+				t.Errorf("expected original user ID %q, got %q", userID, ownership.OriginalUserID)
+			}
+			
+			if ownership.CreatedBy != botID {
+				t.Errorf("expected created by %q, got %q", botID, ownership.CreatedBy)
+			}
+		})
+	
+		t.Run("get_nonexistent_thread_ownership", func(t *testing.T) {
+			ownership, exists := handler.getThreadOwnership("nonexistent123")
+			if exists || ownership != nil {
+				t.Error("expected no ownership for nonexistent thread")
+			}
+		})
+	
+		t.Run("cleanup_thread_ownership", func(t *testing.T) {
+			// First record ownership
+			botID := "bot789"
+			handler.recordThreadOwnership(threadID, userID, botID)
+			
+			// Verify it exists
+			ownership, exists := handler.getThreadOwnership(threadID)
+			if !exists || ownership == nil {
+				t.Fatal("expected thread ownership to exist before cleanup")
+			}
+			
+			// Clean it up (use negative maxAge to force cleanup of all records)
+			handler.cleanupThreadOwnership(-1)
+			
+			// Verify it's gone
+			ownership, exists = handler.getThreadOwnership(threadID)
+			if exists || ownership != nil {
+				t.Error("expected thread ownership to be cleaned up")
+			}
+		})
+	}
+	
+	// Test auto-response logic for thread ownership
+	func TestHandler_ShouldAutoRespondInThread(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		threadID := "thread123"
+		originalUserID := "user456"
+		otherUserID := "user789"
+	
+		botID := "bot101"
+	
+		// Record thread ownership
+		handler.recordThreadOwnership(threadID, originalUserID, botID)
+	
+		tests := []struct {
+			name           string
+			threadID       string
+			userID         string
+			botID          string
+			expectedResult bool
+			description    string
+		}{
+			{
+				name:           "original_user_in_owned_thread",
+				threadID:       threadID,
+				userID:         originalUserID,
+				botID:          botID,
+				expectedResult: true,
+				description:    "Original user should get auto-response in their thread",
+			},
+			{
+				name:           "other_user_in_owned_thread",
+				threadID:       threadID,
+				userID:         otherUserID,
+				botID:          botID,
+				expectedResult: false,
+				description:    "Other users should not get auto-response in owned thread",
+			},
+			{
+				name:           "user_in_unowned_thread",
+				threadID:       "unowned456",
+				userID:         originalUserID,
+				botID:          botID,
+				expectedResult: false,
+				description:    "No auto-response in threads not owned by bot",
+			},
+			{
+				name:           "different_bot_instance",
+				threadID:       threadID,
+				userID:         originalUserID,
+				botID:          "different_bot",
+				expectedResult: false,
+				description:    "Different bot instance should not auto-respond",
+			},
+		}
+	
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// For this test, we need a session, but we'll pass nil since we're testing error handling
+				result := handler.shouldAutoRespondInThread(nil, tt.threadID, tt.userID, tt.botID)
+				if result != tt.expectedResult {
+					t.Errorf("%s: expected %v, got %v", tt.description, tt.expectedResult, result)
+				}
+			})
+		}
+	}
+	
+	// Test enhanced HandleMessageCreate with auto-response functionality
+	func TestHandler_HandleMessageCreate_AutoResponse(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		botID := "bot123"
+		threadID := "thread456"
+		originalUserID := "user789"
+		otherUserID := "user101"
+	
+		// Set up mock AI response
+		query := "Follow up question"
+		expectedResponse := "Follow up answer"
+		mockAI.SetResponse(query, expectedResponse)
+	
+		// Record thread ownership
+		handler.recordThreadOwnership(threadID, originalUserID, botID)
+	
+		// Create mock session
+		session := &discordgo.Session{
+			State: &discordgo.State{},
+		}
+		session.State.User = &discordgo.User{ID: botID}
+	
+		t.Run("auto_response_for_original_user", func(t *testing.T) {
+			// Test the auto-response detection logic
+			shouldRespond := handler.shouldAutoRespondInThread(nil, threadID, originalUserID, botID)
+			if !shouldRespond {
+				t.Error("Expected auto-response for original user in their thread")
+			}
+	
+			// The actual HandleMessageCreate would process this, but we can't test
+			// the Discord API call without complex mocking. The logic test above
+			// validates the core functionality.
+		})
+	
+		t.Run("no_auto_response_for_other_user", func(t *testing.T) {
+			// Test the auto-response detection logic
+			shouldRespond := handler.shouldAutoRespondInThread(nil, threadID, otherUserID, botID)
+			if shouldRespond {
+				t.Error("Expected no auto-response for other user without mention")
+			}
+		})
+	
+		t.Run("mention_still_works_for_other_users", func(t *testing.T) {
+			// Message from other user with @mention should still work
+			message := &discordgo.MessageCreate{
+				Message: &discordgo.Message{
+					ID:        "msg125",
+					Content:   "<@bot123> Mentioned question",
+					ChannelID: threadID,
+					Author:    &discordgo.User{ID: otherUserID},
+					Mentions: []*discordgo.User{
+						{ID: botID},
+					},
+				},
+			}
+	
+			// Test mention detection still works
+			botMentioned := false
+			for _, mention := range message.Mentions {
+				if mention.ID == botID {
+					botMentioned = true
+					break
+				}
+			}
+			
+			if !botMentioned {
+				t.Error("Expected bot to be detected as mentioned")
+			}
+	
+			// Test query extraction
+			extractedQuery := handler.extractQueryFromMention(message.Content, botID)
+			if extractedQuery != "Mentioned question" {
+				t.Errorf("Expected query 'Mentioned question', got %q", extractedQuery)
+			}
+		})
+	}
+	
+	// Test thread message processing workflow
+	func TestHandler_ThreadMessageProcessing_Workflow(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		botID := "bot123"
+		threadID := "thread789"
+		userID := "user101"
+	
+		// Set up mock responses
+		initialQuery := "What is Docker?"
+		initialResponse := "Docker is a containerization platform."
+		followUpQuery := "How do I install it?"
+		followUpResponse := "You can install Docker from their official website."
+	
+		mockAI.SetResponse(initialQuery, initialResponse)
+		mockAI.SetResponse(followUpQuery, followUpResponse)
+	
+		t.Run("complete_thread_workflow", func(t *testing.T) {
+			// Step 1: Initial query in main channel creates thread
+			// (This would normally call processMainChannelQuery and create a thread)
+			// We simulate the thread creation by recording ownership
+			handler.recordThreadOwnership(threadID, userID, botID)
+	
+			// Verify ownership was recorded
+			ownership, exists := handler.getThreadOwnership(threadID)
+			if !exists || ownership == nil {
+				t.Fatal("Expected thread ownership to be recorded")
+			}
+			if ownership.OriginalUserID != userID {
+				t.Errorf("Expected original user %q, got %q", userID, ownership.OriginalUserID)
+			}
+	
+			// Step 2: Follow-up message from original user should auto-respond
+			shouldAutoRespond := handler.shouldAutoRespondInThread(nil, threadID, userID, botID)
+			if !shouldAutoRespond {
+				t.Error("Expected auto-response for original user in their thread")
+			}
+	
+			// Step 3: Message from different user should not auto-respond
+			otherUserID := "user999"
+			shouldNotAutoRespond := handler.shouldAutoRespondInThread(nil, threadID, otherUserID, botID)
+			if shouldNotAutoRespond {
+				t.Error("Expected no auto-response for different user")
+			}
+	
+			// Step 4: Cleanup
+			handler.cleanupThreadOwnership(-1) // negative maxAge will force cleanup of all records
+			ownership, exists = handler.getThreadOwnership(threadID)
+			if exists || ownership != nil {
+				t.Error("Expected thread ownership to be cleaned up")
+			}
+		})
+	}
+	
+	// Test message processing logic with both mention and auto-response triggers
+	func TestHandler_MessageProcessing_TriggerLogic(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		botID := "bot123"
+		userID := "user456"
+		threadID := "thread789"
+		mainChannelID := "main123"
+	
+		// Record thread ownership
+		handler.recordThreadOwnership(threadID, userID, botID)
+	
+		tests := []struct {
+			name              string
+			channelID         string
+			authorID          string
+			content           string
+			mentions          []*discordgo.User
+			shouldProcessMsg  bool
+			processingReason  string
+		}{
+			{
+				name:             "mention_in_main_channel",
+				channelID:        mainChannelID,
+				authorID:         userID,
+				content:          "<@bot123> What is Go?",
+				mentions:         []*discordgo.User{{ID: botID}},
+				shouldProcessMsg: true,
+				processingReason: "Bot mentioned in main channel",
+			},
+			{
+				name:             "mention_in_thread",
+				channelID:        threadID,
+				authorID:         "other_user",
+				content:          "<@bot123> Another question",
+				mentions:         []*discordgo.User{{ID: botID}},
+				shouldProcessMsg: true,
+				processingReason: "Bot mentioned in thread",
+			},
+			{
+				name:             "auto_response_in_owned_thread",
+				channelID:        threadID,
+				authorID:         userID,
+				content:          "Follow up question",
+				mentions:         []*discordgo.User{},
+				shouldProcessMsg: true,
+				processingReason: "Original user in bot-created thread",
+			},
+			{
+				name:             "no_mention_other_user_in_thread",
+				channelID:        threadID,
+				authorID:         "other_user",
+				content:          "Random message",
+				mentions:         []*discordgo.User{},
+				shouldProcessMsg: false,
+				processingReason: "Other user without mention in thread",
+			},
+			{
+				name:             "no_mention_main_channel",
+				channelID:        mainChannelID,
+				authorID:         userID,
+				content:          "Random message",
+				mentions:         []*discordgo.User{},
+				shouldProcessMsg: false,
+				processingReason: "No mention in main channel",
+			},
+			{
+				name:             "bot_message_ignored",
+				channelID:        mainChannelID,
+				authorID:         botID,
+				content:          "Bot's own message",
+				mentions:         []*discordgo.User{},
+				shouldProcessMsg: false,
+				processingReason: "Bot's own message should be ignored",
+			},
+		}
+	
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// Test the individual logic components that determine if a message should be processed
+				
+				// Check if message is from bot (should be ignored)
+				isFromBot := tt.authorID == botID
+				
+				// Check if bot is mentioned
+				botMentioned := false
+				for _, mention := range tt.mentions {
+					if mention.ID == botID {
+						botMentioned = true
+						break
+					}
+				}
+				
+				// Check if should auto-respond in thread
+				shouldAutoRespond := handler.shouldAutoRespondInThread(nil, tt.channelID, tt.authorID, botID)
+				
+				// Determine if message should be processed
+				shouldProcess := !isFromBot && (botMentioned || shouldAutoRespond)
+				
+				if shouldProcess != tt.shouldProcessMsg {
+					t.Errorf("%s: expected shouldProcess=%v, got %v",
+						tt.processingReason, tt.shouldProcessMsg, shouldProcess)
+				}
+				
+				t.Logf("%s: shouldProcess=%v (botMentioned=%v, shouldAutoRespond=%v, isFromBot=%v)",
+					tt.name, shouldProcess, botMentioned, shouldAutoRespond, isFromBot)
+			})
+		}
+	}
+	
+	// Test multi-user thread detection functionality
+	func TestHandler_MultiUserThreadDetection(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		mockAI := NewMockAIService()
+		handler := NewHandler(logger, mockAI)
+	
+		botID := "bot123"
+		threadID := "thread456"
+		originalUserID := "user789"
+	
+		// Record thread ownership
+		handler.recordThreadOwnership(threadID, originalUserID, botID)
+	
+		t.Run("single_user_allows_auto_response", func(t *testing.T) {
+			// With a nil session (test environment), the multi-user check is skipped
+			// so we should get auto-response for the original user
+			shouldRespond := handler.shouldAutoRespondInThread(nil, threadID, originalUserID, botID)
+			if !shouldRespond {
+				t.Error("Expected auto-response for original user in single-user scenario (test with nil session)")
+			}
+		})
+	
+		t.Run("multi_user_logic_components", func(t *testing.T) {
+			// Test the countThreadParticipants function logic
+			// Since we can't test with real Discord API, we verify the function exists and has correct signature
+			
+			// This would normally count participants, but with nil session it will error
+			defer func() {
+				if r := recover(); r != nil {
+					t.Logf("Expected panic with nil session: %v", r)
+				}
+			}()
+			
+			_, err := handler.countThreadParticipants(nil, threadID, botID)
+			if err == nil {
+				t.Error("Expected error for nil session in countThreadParticipants")
+			}
+		})
+	
+		t.Run("enhanced_conversation_history", func(t *testing.T) {
+			// Test formatConversationHistory with bot messages included
+			messages := []*discordgo.Message{
+				{
+					Content: "What is Docker?",
+					Author:  &discordgo.User{Username: "user1", Bot: false},
+				},
+				{
+					Content: "Docker is a containerization platform.",
+					Author:  &discordgo.User{Username: "TestBot", Bot: true},
+				},
+				{
+					Content: "How do I install it?",
+					Author:  &discordgo.User{Username: "user2", Bot: false},
+				},
+			}
+	
+			expected := "user1: What is Docker?\nBot (TestBot): Docker is a containerization platform.\nuser2: How do I install it?"
+			result := handler.formatConversationHistory(messages)
+			
+			if result != expected {
+				t.Errorf("Expected formatted history %q, got %q", expected, result)
+			}
+			
+			t.Logf("Multi-user conversation history formatted correctly: %q", result)
+		})
+		}

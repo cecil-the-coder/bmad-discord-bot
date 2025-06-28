@@ -43,6 +43,7 @@ As a user, I want to ask follow-up questions within a thread and have the bot un
     * 1.4.2: The backend service must have a function to summarize the conversation history.
     * 1.4.3: The prompt sent to the Gemini CLI must include both the summarized history and the user's new question.
     * 1.4.4: The bot's new answer is posted as a reply within the same thread.
+    * 1.4.5: When the original user sends a message in a thread that was created by the bot in response to their question, the bot must automatically process and respond to the message without requiring an @mention.
 
 ### Story 1.5: API Usage Monitoring
 

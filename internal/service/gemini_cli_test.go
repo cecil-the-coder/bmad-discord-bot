@@ -380,6 +380,289 @@ fi
 	return tmpFile.Name()
 }
 
+func TestGeminiCLIService_QueryWithContext(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	
+	// Create a mock script for testing contextual queries
+	mockScript := createMockContextualScript(t)
+	defer os.Remove(mockScript)
+	
+	service, err := NewGeminiCLIService(mockScript, logger)
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	tests := []struct {
+		name              string
+		query             string
+		conversationHistory string
+		expectError       bool
+		expectedContains  string
+	}{
+		{
+			name:        "empty query",
+			query:       "",
+			conversationHistory: "User: Hello\nBot: Hi there!",
+			expectError: true,
+		},
+		{
+			name:        "query without context",
+			query:       "What is the weather?",
+			conversationHistory: "",
+			expectError: false,
+			expectedContains: "Mock response for: What is the weather?",
+		},
+		{
+			name:        "query with context",
+			query:       "What about tomorrow?",
+			conversationHistory: "User: What is the weather today?\nBot: It's sunny today.",
+			expectError: false,
+			expectedContains: "Contextual mock response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response, err := service.QueryWithContext(tt.query, tt.conversationHistory)
+			
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if !strings.Contains(response, tt.expectedContains) {
+					t.Errorf("expected response to contain %q, got %q", tt.expectedContains, response)
+				}
+			}
+		})
+	}
+}
+
+func TestGeminiCLIService_SummarizeConversation(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	
+	// Create a mock script for testing conversation summarization
+	mockScript := createMockConversationSummaryScript(t)
+	defer os.Remove(mockScript)
+	
+	service, err := NewGeminiCLIService(mockScript, logger)
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		messages    []string
+		expectError bool
+		expectedContains string
+	}{
+		{
+			name:     "empty messages",
+			messages: []string{},
+			expectError: false,
+			expectedContains: "",
+		},
+		{
+			name:     "single message",
+			messages: []string{"User: Hello"},
+			expectError: false,
+			expectedContains: "Conversation summary",
+		},
+		{
+			name:     "multiple messages",
+			messages: []string{
+				"User: What is Go?",
+				"Bot: Go is a programming language.",
+				"User: Who created it?",
+				"Bot: Go was created by Google.",
+			},
+			expectError: false,
+			expectedContains: "Conversation summary",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			summary, err := service.SummarizeConversation(tt.messages)
+			
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if len(tt.messages) == 0 {
+					if summary != "" {
+						t.Errorf("expected empty summary for empty messages, got %q", summary)
+					}
+				} else if !strings.Contains(summary, tt.expectedContains) {
+					t.Errorf("expected summary to contain %q, got %q", tt.expectedContains, summary)
+				}
+			}
+		})
+	}
+}
+
+func TestGeminiCLIService_SummarizeConversation_FallbackBehavior(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	
+	// Create a mock script that fails to test fallback behavior
+	mockScript := createFailingMockScript(t)
+	defer os.Remove(mockScript)
+	
+	service, err := NewGeminiCLIService(mockScript, logger)
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	messages := []string{
+		"User: What is programming?",
+		"Bot: Programming is writing code.",
+		"User: What languages are popular?",
+		"Bot: Python, JavaScript, Go are popular.",
+	}
+
+	summary, err := service.SummarizeConversation(messages)
+	
+	// Should not error (fallback handles the failure)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	
+	// Should get fallback summary
+	if !strings.Contains(summary, "User: What languages are popular?") {
+		t.Errorf("expected fallback summary to contain recent messages, got %q", summary)
+	}
+	
+	t.Logf("Fallback conversation summary: %q", summary)
+}
+
+func TestGeminiCLIService_FallbackConversationSummary(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	service, err := NewGeminiCLIService(os.Args[0], logger)
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		messages []string
+		expectedLength int
+		expectedContains string
+	}{
+		{
+			name:     "empty messages",
+			messages: []string{},
+			expectedLength: 0,
+		},
+		{
+			name:     "few messages",
+			messages: []string{"User: Hello", "Bot: Hi", "User: How are you?"},
+			expectedContains: "User: Hello",
+		},
+		{
+			name:     "many messages - should limit to recent",
+			messages: []string{
+				"User: Message 1", "Bot: Response 1",
+				"User: Message 2", "Bot: Response 2",
+				"User: Message 3", "Bot: Response 3",
+				"User: Message 4", "Bot: Response 4",
+				"User: Message 5", "Bot: Response 5",
+				"User: Message 6", "Bot: Response 6",
+			},
+			expectedContains: "User: Message 6", // Should contain the most recent
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := service.fallbackConversationSummary(tt.messages)
+			
+			if len(tt.messages) == 0 {
+				if result != "" {
+					t.Errorf("expected empty result for empty messages, got %q", result)
+				}
+			} else {
+				if !strings.Contains(result, tt.expectedContains) {
+					t.Errorf("expected result to contain %q, got %q", tt.expectedContains, result)
+				}
+				
+				// Verify length constraints
+				if len(result) > 1000 {
+					t.Errorf("result too long: %d characters (max 1000)", len(result))
+				}
+			}
+		})
+	}
+}
+
+// createMockContextualScript creates a script that handles contextual queries
+func createMockContextualScript(t *testing.T) string {
+	scriptContent := `#!/bin/bash
+# Check if the prompt contains contextual information (updated for new prompt format)
+if [[ "$2" == *"You are continuing an ongoing conversation"* ]]; then
+	   echo "Contextual mock response"
+else
+	   echo "Mock response for: $2"
+fi
+`
+	
+	tmpFile, err := os.CreateTemp("", "mock-contextual-*.sh")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	
+	if _, err := tmpFile.WriteString(scriptContent); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+	
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
+	
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		t.Fatalf("failed to make script executable: %v", err)
+	}
+	
+	return tmpFile.Name()
+}
+
+// createMockConversationSummaryScript creates a script that handles conversation summarization
+func createMockConversationSummaryScript(t *testing.T) string {
+	scriptContent := `#!/bin/bash
+# Check if the prompt is for conversation summarization
+if [[ "$2" == *"Summarize this conversation"* ]]; then
+	   echo "Conversation summary: Multiple messages discussed"
+else
+	   echo "Mock response for: $2"
+fi
+`
+	
+	tmpFile, err := os.CreateTemp("", "mock-conv-summary-*.sh")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	
+	if _, err := tmpFile.WriteString(scriptContent); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+	
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
+	
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		t.Fatalf("failed to make script executable: %v", err)
+	}
+	
+	return tmpFile.Name()
+}
+
 // createFailingMockScript creates a script that always fails
 func createFailingMockScript(t *testing.T) string {
 	scriptContent := `#!/bin/bash

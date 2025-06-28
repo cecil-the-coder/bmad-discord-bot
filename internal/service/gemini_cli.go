@@ -160,6 +160,140 @@ func (g *GeminiCLIService) fallbackSummarize(query string) string {
 	return summary
 }
 
+// QueryWithContext sends a query with conversation history context to the AI service
+func (g *GeminiCLIService) QueryWithContext(query string, conversationHistory string) (string, error) {
+	if strings.TrimSpace(query) == "" {
+		return "", fmt.Errorf("query cannot be empty")
+	}
+
+	g.logger.Info("Sending contextual query to Gemini CLI",
+		"query_length", len(query),
+		"history_length", len(conversationHistory))
+
+	// Create a contextual prompt that includes conversation history
+	var prompt string
+	if strings.TrimSpace(conversationHistory) != "" {
+		prompt = fmt.Sprintf(`You are continuing an ongoing conversation. Here is the conversation history:
+
+%s
+
+The user just asked: "%s"
+
+Please respond to this follow-up question in the context of the previous conversation. If the question refers to something mentioned earlier (like "that city", "it", "there"), use the conversation history to understand what they're referring to. Maintain continuity with the previous discussion.`, conversationHistory, query)
+	} else {
+		// Fallback to regular query if no history
+		prompt = query
+	}
+
+	// Create context with timeout for command execution
+	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
+	defer cancel()
+
+	// Execute gemini-cli command with the contextual prompt
+	cmd := exec.CommandContext(ctx, g.cliPath, "-p", prompt)
+	
+	// Capture both stdout and stderr
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Error("Gemini CLI contextual execution failed",
+			"error", err,
+			"output", string(output))
+		
+		// Check if it's a timeout error
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("gemini CLI contextual request timed out after %v", g.timeout)
+		}
+		
+		return "", fmt.Errorf("gemini CLI contextual error: %w", err)
+	}
+
+	responseText := strings.TrimSpace(string(output))
+	if responseText == "" {
+		g.logger.Warn("Gemini CLI returned empty contextual response")
+		return "I received an empty response from the AI service.", nil
+	}
+
+	g.logger.Info("Gemini CLI contextual response received",
+		"response_length", len(responseText))
+
+	return responseText, nil
+}
+
+// SummarizeConversation creates a summary of conversation history for context preservation
+func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, error) {
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	g.logger.Info("Summarizing conversation", "message_count", len(messages))
+
+	// Join messages into a single conversation text
+	conversationText := strings.Join(messages, "\n")
+	
+	// Create a specialized prompt for conversation summarization
+	prompt := fmt.Sprintf("Summarize this conversation in a concise way that preserves the key context and topics discussed. Focus on the main questions asked and important information shared. Keep it under 500 words:\n\n%s", conversationText)
+
+	// Create context with timeout for command execution
+	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
+	defer cancel()
+
+	// Execute gemini-cli command with the summarization prompt
+	cmd := exec.CommandContext(ctx, g.cliPath, "-p", prompt)
+	
+	// Capture both stdout and stderr
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Error("Gemini CLI conversation summarization failed",
+			"error", err,
+			"output", string(output))
+		
+		// Check if it's a timeout error
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("gemini CLI conversation summarization timed out after %v", g.timeout)
+		}
+		
+		// Fallback to truncated conversation if AI summarization fails
+		g.logger.Warn("AI conversation summarization failed, using fallback", "error", err)
+		return g.fallbackConversationSummary(messages), nil
+	}
+
+	summary := strings.TrimSpace(string(output))
+	if summary == "" {
+		g.logger.Warn("Gemini CLI returned empty conversation summary, using fallback")
+		return g.fallbackConversationSummary(messages), nil
+	}
+
+	g.logger.Info("Conversation summary created",
+		"summary_length", len(summary))
+
+	return summary, nil
+}
+
+// fallbackConversationSummary provides a simple fallback when AI summarization fails
+func (g *GeminiCLIService) fallbackConversationSummary(messages []string) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	
+	// Simple fallback: take the last few messages and truncate if needed
+	const maxMessages = 5
+	const maxLength = 1000
+	
+	startIdx := 0
+	if len(messages) > maxMessages {
+		startIdx = len(messages) - maxMessages
+	}
+	
+	recentMessages := messages[startIdx:]
+	summary := strings.Join(recentMessages, "\n")
+	
+	if len(summary) > maxLength {
+		summary = summary[:maxLength-3] + "..."
+	}
+	
+	return summary
+}
+
 // SetTimeout allows customizing the CLI execution timeout
 func (g *GeminiCLIService) SetTimeout(timeout time.Duration) {
 	g.timeout = timeout
