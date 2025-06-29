@@ -42,3 +42,7 @@ bmad-knowledge-bot
 
 # Logs
 *.log
+
+# Knowledge base files (should be included in Docker image)
+# Uncomment if you want to exclude from git
+# internal/knowledge/

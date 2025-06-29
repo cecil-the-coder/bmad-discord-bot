@@ -1,6 +1,15 @@
 # BMAD Knowledge Bot
 
-A Discord bot built with Go that provides AI-powered knowledge assistance.
+A specialized Discord bot built with Go that provides expert knowledge about the BMAD-METHOD framework. The bot answers questions exclusively from the BMAD knowledge base, ensuring accurate and contextual responses about the framework.
+
+## Features
+
+- **BMAD-Focused Responses**: Answers questions exclusively from the BMAD-METHOD knowledge base
+- **Citation Support**: Maintains citation markers from the source documentation
+- **Contextual Conversations**: Supports threaded conversations while maintaining BMAD context
+- **Knowledge Constraints**: Politely refuses to answer questions outside the BMAD scope
+- **Rate Limiting**: Visual Discord status indicators for API health
+- **Thread Management**: Automatically creates threads for organized conversations
 
 ## Setup
 
@@ -9,6 +18,7 @@ A Discord bot built with Go that provides AI-powered knowledge assistance.
 - Go 1.24.x
 - Discord Bot Token
 - Google Gemini CLI (for AI functionality)
+- BMAD Knowledge Base file (`docs/bmadprompt.md`)
 - Docker and Docker Compose (optional, for containerized deployment)
 
 ### Installation
@@ -20,8 +30,9 @@ A Discord bot built with Go that provides AI-powered knowledge assistance.
    ```
 3. Edit `.env` and set your configuration:
    ```
-   BOT_TOKEN=your_discord_bot_token_here
-   GEMINI_CLI_PATH=/path/to/gemini-cli
+   DISCORD_TOKEN=your_discord_bot_token
+   GEMINI_CLI_PATH=/usr/local/bin/gemini
+   BMAD_PROMPT_PATH=internal/knowledge/bmad.md  # Optional, defaults to internal/knowledge/bmad.md
    ```
 
 ### Getting a Discord Bot Token
@@ -36,8 +47,10 @@ A Discord bot built with Go that provides AI-powered knowledge assistance.
 
 #### Local Development
 ```bash
-# Set environment variable
-export BOT_TOKEN=your_discord_bot_token_here
+# Set environment variables
+export DISCORD_TOKEN=your_discord_bot_token
+export GEMINI_CLI_PATH=/usr/local/bin/gemini
+export BMAD_PROMPT_PATH=internal/knowledge/bmad.md  # Optional
 
 # Run the bot
 go run cmd/bot/main.go
@@ -49,7 +62,13 @@ go run cmd/bot/main.go
 docker build -t bmad-knowledge-bot .
 
 # Run the container
-docker run -e BOT_TOKEN=your_discord_bot_token_here bmad-knowledge-bot
+docker run -d \
+  --name bmad-discord-bot \
+  -e DISCORD_TOKEN=$DISCORD_TOKEN \
+  -e GEMINI_CLI_PATH=/usr/local/bin/gemini \
+  -e BMAD_PROMPT_PATH=/app/internal/knowledge/bmad.md \
+  -v ~/.gemini:/home/botuser/.gemini:rw \
+  bmad-knowledge-bot:latest
 ```
 
 #### Using Docker Compose (Recommended)
@@ -72,32 +91,4 @@ docker-compose up --build -d
 
 The Docker Compose setup includes:
 - Automatic loading of environment variables from `.env` file
-- Volume mounting of `./gemini-config` to `/home/botuser/.gemini` for Gemini CLI configuration
-- Persistent logging to `./logs` directory
-- Health checks and resource limits
-- Automatic restart on failure
-
-### Project Structure
-
-```
-bmad-knowledge-bot/
-├── cmd/bot/main.go         # Main application entry point
-├── internal/
-│   ├── bot/                # Core bot logic, event handlers
-│   ├── service/            # AI service interface and Gemini CLI
-│   └── monitor/            # Rate limit monitoring
-├── .env.example            # Environment template
-├── Dockerfile              # Container build instructions
-├── docker-compose.yml      # Docker Compose configuration
-├── gemini-config/          # Gemini CLI configuration (mounted volume)
-├── logs/                   # Application logs (mounted volume)
-└── README.md               # This file
-```
-
-## Development
-
-The bot follows Go best practices and includes structured logging. All secrets are read from environment variables for security.
-
-## License
-
-This project is part of the BMAD (Bot Management and Development) framework.
+- Volume mounting of `./gemini-config`

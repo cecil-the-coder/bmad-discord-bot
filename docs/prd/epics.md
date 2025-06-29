@@ -64,3 +64,19 @@ As a user, I want to see the bot's Discord status change color, so that I have a
     * 1.6.3: When API usage is approaching the rate limit (e.g., >75% capacity), the status is set to "Idle" (Yellow).
     * 1.6.4: If the rate limit has been exceeded, the status is set to "Do Not Disturb" (Red).
     * 1.6.5: The status returns to normal once the usage level drops.
+
+## Epic 2: BMAD Knowledge Bot Specialization
+
+**Goal**: Transform the general-purpose conversational bot into a specialized BMAD-METHOD expert that provides accurate, contextual answers exclusively from the BMAD knowledge base.
+
+### Story 2.1: Transform Bot to BMAD Knowledge Expert
+
+As a user, I want the bot to answer questions exclusively using the BMAD-METHOD knowledge base, so that I get accurate, contextual answers about the BMAD framework without hallucinations or off-topic responses.
+
+* **Acceptance Criteria**:
+    * 2.1.1: The bot's Gemini CLI integration is updated to include the BMAD prompt knowledge base (`docs/bmadprompt.md`) as the primary context for all queries.
+    * 2.1.2: The bot's system prompt instructs it to answer ONLY based on the BMAD knowledge base, refusing to answer questions outside this scope.
+    * 2.1.3: When asked about topics not covered in the BMAD knowledge base, the bot politely indicates that the information is not available in its knowledge base.
+    * 2.1.4: The bot maintains citation capability, referencing specific sections of the BMAD documentation when providing answers.
+    * 2.1.5: The bot's responses are focused, contextual, and directly relevant to the BMAD-METHOD framework.
+    * 2.1.6: The conversational context in threads (from Story 1.4) continues to work but is constrained to BMAD-related discussions.

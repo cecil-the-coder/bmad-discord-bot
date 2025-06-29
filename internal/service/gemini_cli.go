@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"bmad-knowledge-bot/internal/monitor"
@@ -14,10 +15,13 @@ import (
 
 // GeminiCLIService implements AIService interface using Google Gemini CLI
 type GeminiCLIService struct {
-	cliPath     string
-	timeout     time.Duration
-	logger      *slog.Logger
-	rateLimiter monitor.AIProviderRateLimiter
+	cliPath           string
+	timeout           time.Duration
+	logger            *slog.Logger
+	rateLimiter       monitor.AIProviderRateLimiter
+	bmadKnowledgeBase string
+	bmadPromptPath    string
+	knowledgeBaseMu   sync.RWMutex
 }
 
 // NewGeminiCLIService creates a new Gemini CLI service instance
@@ -31,17 +35,66 @@ func NewGeminiCLIService(cliPath string, logger *slog.Logger) (*GeminiCLIService
 		return nil, fmt.Errorf("gemini CLI not found at path: %s", cliPath)
 	}
 
-	return &GeminiCLIService{
-		cliPath:     cliPath,
-		timeout:     30 * time.Second, // Default 30 second timeout
-		logger:      logger,
-		rateLimiter: nil, // Will be set via SetRateLimiter
-	}, nil
+	// Get BMAD prompt path from environment or use default
+	bmadPromptPath := os.Getenv("BMAD_PROMPT_PATH")
+	if bmadPromptPath == "" {
+		bmadPromptPath = "internal/knowledge/bmad.md"
+	}
+
+	service := &GeminiCLIService{
+		cliPath:        cliPath,
+		timeout:        30 * time.Second, // Default 30 second timeout
+		logger:         logger,
+		rateLimiter:    nil, // Will be set via SetRateLimiter
+		bmadPromptPath: bmadPromptPath,
+	}
+
+	// Load BMAD knowledge base at startup
+	if err := service.loadBMADKnowledgeBase(); err != nil {
+		logger.Error("Failed to load BMAD knowledge base",
+			"path", bmadPromptPath,
+			"error", err)
+		return nil, fmt.Errorf("failed to load BMAD knowledge base: %w", err)
+	}
+
+	logger.Info("BMAD knowledge base loaded successfully",
+		"path", bmadPromptPath,
+		"size", len(service.bmadKnowledgeBase))
+
+	return service, nil
+}
+
+// loadBMADKnowledgeBase loads the BMAD prompt file into memory
+func (g *GeminiCLIService) loadBMADKnowledgeBase() error {
+	g.knowledgeBaseMu.Lock()
+	defer g.knowledgeBaseMu.Unlock()
+
+	content, err := os.ReadFile(g.bmadPromptPath)
+	if err != nil {
+		return fmt.Errorf("failed to read BMAD prompt file: %w", err)
+	}
+
+	g.bmadKnowledgeBase = string(content)
+	return nil
 }
 
 // SetRateLimiter sets the rate limiter for this service
 func (g *GeminiCLIService) SetRateLimiter(rateLimiter monitor.AIProviderRateLimiter) {
 	g.rateLimiter = rateLimiter
+}
+
+// buildBMADPrompt creates a prompt that includes the BMAD knowledge base and constraints
+func (g *GeminiCLIService) buildBMADPrompt(userQuery string) string {
+	g.knowledgeBaseMu.RLock()
+	defer g.knowledgeBaseMu.RUnlock()
+
+	return fmt.Sprintf(`%s
+
+-----
+
+USER QUESTION: %s
+
+IMPORTANT: Answer ONLY based on the information provided in the BMAD knowledge base above. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.`, g.bmadKnowledgeBase, userQuery)
 }
 
 // QueryAI sends a query to the Gemini CLI and returns the response
@@ -66,12 +119,15 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 		}
 	}
 
+	// Build BMAD-constrained prompt
+	bmadPrompt := g.buildBMADPrompt(query)
+
 	// Create context with timeout for command execution
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
 
-	// Execute gemini-cli command with the user's query using -p flag
-	cmd := exec.CommandContext(ctx, g.cliPath, "-p", query)
+	// Execute gemini-cli command with the BMAD-constrained prompt
+	cmd := exec.CommandContext(ctx, g.cliPath, "-p", bmadPrompt)
 
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
@@ -124,8 +180,8 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 		}
 	}
 
-	// Create a specialized prompt for summarization
-	prompt := fmt.Sprintf("Create a concise summary of this question in 8 words or less, suitable for a Discord thread title. Focus on the main topic or question being asked. Do not include quotes or formatting. Question: %s", query)
+	// Create a specialized prompt for BMAD-focused summarization
+	prompt := fmt.Sprintf("Create a concise summary of this BMAD-METHOD related question in 8 words or less, suitable for a Discord thread title. Focus on the BMAD topic or concept being asked about. Do not include quotes or formatting. Question: %s", query)
 
 	// Create context with timeout for command execution
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
@@ -224,19 +280,27 @@ func (g *GeminiCLIService) QueryWithContext(query string, conversationHistory st
 		}
 	}
 
-	// Create a contextual prompt that includes conversation history
+	// Build BMAD-constrained contextual prompt
+	g.knowledgeBaseMu.RLock()
+	bmadKnowledge := g.bmadKnowledgeBase
+	g.knowledgeBaseMu.RUnlock()
+
+	// Create a contextual prompt that includes BMAD knowledge base and conversation history
 	var prompt string
 	if strings.TrimSpace(conversationHistory) != "" {
-		prompt = fmt.Sprintf(`You are continuing an ongoing conversation. Here is the conversation history:
+		prompt = fmt.Sprintf(`%s
 
+-----
+
+CONVERSATION HISTORY:
 %s
 
-The user just asked: "%s"
+USER QUESTION: %s
 
-Please respond to this follow-up question in the context of the previous conversation. If the question refers to something mentioned earlier (like "that city", "it", "there"), use the conversation history to understand what they're referring to. Maintain continuity with the previous discussion.`, conversationHistory, query)
+IMPORTANT: You are continuing a conversation about BMAD-METHOD. Answer ONLY based on the information provided in the BMAD knowledge base above. If the follow-up question refers to something mentioned earlier in the conversation, use the conversation history to understand the context. However, your answer must still be grounded in the BMAD knowledge base. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.`, bmadKnowledge, conversationHistory, query)
 	} else {
-		// Fallback to regular query if no history
-		prompt = query
+		// Fallback to regular BMAD query if no history
+		prompt = g.buildBMADPrompt(query)
 	}
 
 	// Create context with timeout for command execution
@@ -300,8 +364,8 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 	// Join messages into a single conversation text
 	conversationText := strings.Join(messages, "\n")
 
-	// Create a specialized prompt for conversation summarization
-	prompt := fmt.Sprintf("Summarize this conversation in a concise way that preserves the key context and topics discussed. Focus on the main questions asked and important information shared. Keep it under 500 words:\n\n%s", conversationText)
+	// Create a specialized prompt for BMAD conversation summarization
+	prompt := fmt.Sprintf("Summarize this BMAD-METHOD conversation in a concise way that preserves the key BMAD concepts and topics discussed. Focus on the BMAD-related questions asked and important BMAD information shared. Keep it under 500 words:\n\n%s", conversationText)
 
 	// Create context with timeout for command execution
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)

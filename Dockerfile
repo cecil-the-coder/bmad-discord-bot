@@ -41,6 +41,12 @@ RUN groupadd -r botuser && useradd -r -g botuser botuser
 # Copy the binary with proper ownership and permissions
 COPY --from=builder --chown=botuser:botuser /app/main /app/main
 
+# Copy knowledge base files
+COPY --chown=botuser:botuser internal/knowledge /app/internal/knowledge
+
+# Create logs directory
+RUN mkdir -p /app/logs && chown -R botuser:botuser /app/logs
+
 # Set proper file permissions
 USER botuser
 
