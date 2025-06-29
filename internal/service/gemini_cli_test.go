@@ -303,10 +303,10 @@ func TestQueryAI_WithBMADConstraints(t *testing.T) {
 
 	// Script that checks if BMAD prompt is included
 	script := `#!/bin/sh
-if echo "$2" | grep -q "BMAD knowledge base" && echo "$2" | grep -q "USER QUESTION:"; then
-    echo "BMAD-METHOD is a framework [cite: 85]"
+if echo "$4" | grep -q "BMAD knowledge base" && echo "$4" | grep -q "USER QUESTION:"; then
+	   echo "BMAD-METHOD is a framework [cite: 85]"
 else
-    echo "General response without BMAD context"
+	   echo "General response without BMAD context"
 fi
 `
 	err := os.WriteFile(execPath, []byte(script), 0755)
@@ -338,10 +338,10 @@ func TestQueryWithContext_BMADConstraints(t *testing.T) {
 
 	// Script that checks for BMAD context and conversation history
 	script := `#!/bin/sh
-if echo "$2" | grep -q "BMAD knowledge base" && echo "$2" | grep -q "CONVERSATION HISTORY:"; then
-    echo "Based on BMAD knowledge and previous context [cite: 90]"
+if echo "$4" | grep -q "BMAD knowledge base" && echo "$4" | grep -q "CONVERSATION HISTORY:"; then
+	   echo "Based on BMAD knowledge and previous context [cite: 90]"
 else
-    echo "Response without proper context"
+	   echo "Response without proper context"
 fi
 `
 	err := os.WriteFile(execPath, []byte(script), 0755)
