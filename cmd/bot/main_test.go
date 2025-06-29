@@ -99,7 +99,7 @@ func TestValidateToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateToken(tt.token)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error for token '%s', but got none", tt.name)
@@ -119,7 +119,7 @@ func TestValidateGeminiCLIPath(t *testing.T) {
 	// Create a temporary file for testing
 	tmpDir := t.TempDir()
 	validPath := filepath.Join(tmpDir, "test-gemini")
-	
+
 	// Create the test file
 	if err := os.WriteFile(validPath, []byte("#!/bin/bash\necho test"), 0755); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
@@ -169,7 +169,7 @@ func TestHealthCheckFlag(t *testing.T) {
 	// Test that health check flag would be recognized
 	// We can't easily test the os.Exit behavior, but we can test the condition
 	args := []string{"program", "--health-check"}
-	
+
 	if len(args) > 1 && args[1] == "--health-check" {
 		t.Log("Health check flag correctly detected - would cause main() to exit with code 0")
 	} else {

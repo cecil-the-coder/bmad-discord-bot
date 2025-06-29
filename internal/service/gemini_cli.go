@@ -72,7 +72,7 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 
 	// Execute gemini-cli command with the user's query using -p flag
 	cmd := exec.CommandContext(ctx, g.cliPath, "-p", query)
-	
+
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -80,12 +80,12 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
-		
+
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("gemini CLI request timed out after %v", g.timeout)
 		}
-		
+
 		return "", fmt.Errorf("gemini CLI error: %w", err)
 	}
 
@@ -133,7 +133,7 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 
 	// Execute gemini-cli command with the summarization prompt
 	cmd := exec.CommandContext(ctx, g.cliPath, "-p", prompt)
-	
+
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -141,15 +141,15 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
-		
+
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("gemini CLI summarization timed out after %v", g.timeout)
 		}
-		
+
 		// Fallback to simple truncation if AI summarization fails
 		g.logger.Warn("AI summarization failed, using fallback", "provider", g.GetProviderID(), "error", err)
-	return g.fallbackSummarize(query), nil
+		return g.fallbackSummarize(query), nil
 	}
 
 	summary := strings.TrimSpace(string(output))
@@ -178,7 +178,7 @@ func (g *GeminiCLIService) fallbackSummarize(query string) string {
 	if len(words) == 0 {
 		return "Question"
 	}
-	
+
 	summary := ""
 	for _, word := range words {
 		testSummary := summary + " " + word
@@ -187,17 +187,17 @@ func (g *GeminiCLIService) fallbackSummarize(query string) string {
 		}
 		summary = testSummary
 	}
-	
+
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		return "Question"
 	}
-	
+
 	// Add ellipsis if we truncated
 	if len(words) > len(strings.Fields(summary)) {
 		summary += "..."
 	}
-	
+
 	return summary
 }
 
@@ -245,7 +245,7 @@ Please respond to this follow-up question in the context of the previous convers
 
 	// Execute gemini-cli command with the contextual prompt
 	cmd := exec.CommandContext(ctx, g.cliPath, "-p", prompt)
-	
+
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -253,12 +253,12 @@ Please respond to this follow-up question in the context of the previous convers
 			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
-		
+
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("gemini CLI contextual request timed out after %v", g.timeout)
 		}
-		
+
 		return "", fmt.Errorf("gemini CLI contextual error: %w", err)
 	}
 
@@ -299,7 +299,7 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 
 	// Join messages into a single conversation text
 	conversationText := strings.Join(messages, "\n")
-	
+
 	// Create a specialized prompt for conversation summarization
 	prompt := fmt.Sprintf("Summarize this conversation in a concise way that preserves the key context and topics discussed. Focus on the main questions asked and important information shared. Keep it under 500 words:\n\n%s", conversationText)
 
@@ -309,7 +309,7 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 
 	// Execute gemini-cli command with the summarization prompt
 	cmd := exec.CommandContext(ctx, g.cliPath, "-p", prompt)
-	
+
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -317,12 +317,12 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
-		
+
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("gemini CLI conversation summarization timed out after %v", g.timeout)
 		}
-		
+
 		// Fallback to truncated conversation if AI summarization fails
 		g.logger.Warn("AI conversation summarization failed, using fallback", "provider", g.GetProviderID(), "error", err)
 		return g.fallbackConversationSummary(messages), nil
@@ -346,23 +346,23 @@ func (g *GeminiCLIService) fallbackConversationSummary(messages []string) string
 	if len(messages) == 0 {
 		return ""
 	}
-	
+
 	// Simple fallback: take the last few messages and truncate if needed
 	const maxMessages = 5
 	const maxLength = 1000
-	
+
 	startIdx := 0
 	if len(messages) > maxMessages {
 		startIdx = len(messages) - maxMessages
 	}
-	
+
 	recentMessages := messages[startIdx:]
 	summary := strings.Join(recentMessages, "\n")
-	
+
 	if len(summary) > maxLength {
 		summary = summary[:maxLength-3] + "..."
 	}
-	
+
 	return summary
 }
 
@@ -377,7 +377,7 @@ func (g *GeminiCLIService) checkRateLimit() error {
 		// Rate limiting not configured - allow the call
 		return nil
 	}
-	
+
 	status := g.rateLimiter.GetProviderStatus(g.GetProviderID())
 	if status == "Throttled" {
 		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
@@ -389,7 +389,7 @@ func (g *GeminiCLIService) checkRateLimit() error {
 		return fmt.Errorf("rate limit exceeded for provider %s: %d/%d requests",
 			g.GetProviderID(), usage, limit)
 	}
-	
+
 	// Log warning status but don't block the call
 	if status == "Warning" {
 		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
@@ -399,7 +399,7 @@ func (g *GeminiCLIService) checkRateLimit() error {
 			"usage", usage,
 			"limit", limit)
 	}
-	
+
 	return nil
 }
 

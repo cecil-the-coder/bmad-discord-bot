@@ -2,11 +2,16 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"bmad-knowledge-bot/internal/monitor"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -77,12 +82,12 @@ func TestDiscordConnectionValidation(t *testing.T) {
 		if len(dg.State.User.ID) < 15 {
 			t.Error("Expected bot user ID to have reasonable length")
 		}
-		
+
 		// Validate username
 		if dg.State.User.Username == "" {
 			t.Error("Expected bot username to be non-empty")
 		}
-		
+
 		// Validate that it's actually a bot
 		if !dg.State.User.Bot {
 			t.Error("Expected user to be marked as a bot")
@@ -91,7 +96,7 @@ func TestDiscordConnectionValidation(t *testing.T) {
 
 	// Connection resilience testing - multiple connection attempts
 	logger.Info("Testing connection resilience...")
-	
+
 	// Close and reopen connection to test reconnection
 	if err := dg.Close(); err != nil {
 		t.Errorf("Error during controlled disconnect: %v", err)
@@ -222,12 +227,11 @@ func TestBotStatusUpdate(t *testing.T) {
 	}
 }
 
-
 func TestMentionToReplyWorkflow(t *testing.T) {
 	// Skip integration test if no bot token or Gemini CLI path is provided
 	token := os.Getenv("BOT_TOKEN")
 	geminiPath := os.Getenv("GEMINI_CLI_PATH")
-	
+
 	if token == "" {
 		t.Skip("Skipping integration test: BOT_TOKEN environment variable not set")
 	}
@@ -324,7 +328,6 @@ func TestMentionToReplyWorkflow(t *testing.T) {
 
 	t.Log("Integration test completed: Bot connection and handler integration successful")
 }
-
 
 func TestThreadCreationWorkflow(t *testing.T) {
 	// Skip integration test if no bot token is provided
@@ -605,4 +608,241 @@ func TestDiscordPermissionsForThreads(t *testing.T) {
 	// Note: Full permission testing would require a test Discord server
 	// This test validates the bot connection and basic identity requirements
 	t.Log("Discord permissions validation completed")
+}
+
+func TestStatusManagementIntegration(t *testing.T) {
+	if os.Getenv("BOT_TOKEN") == "" {
+		t.Skip("Skipping integration test: BOT_TOKEN environment variable not set")
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	// Create rate limit manager with low limits for testing
+	config := monitor.ProviderConfig{
+		ProviderID: "test",
+		Limits: map[string]int{
+			"minute": 3, // Very low limit for testing
+		},
+		Thresholds: map[string]float64{
+			"warning":   0.67, // 2/3 = 67%
+			"throttled": 1.0,  // 3/3 = 100%
+		},
+	}
+
+	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{config})
+
+	// Create mock bot session
+	mockSession := &MockBotSession{}
+	statusManager := NewDiscordStatusManager(mockSession, logger)
+	statusManager.SetDebounceInterval(100 * time.Millisecond) // Short debounce for testing
+
+	// Track status changes
+	var statusChanges []string
+	statusMutex := sync.Mutex{}
+
+	statusCallback := func(providerID, status string) {
+		statusMutex.Lock()
+		defer statusMutex.Unlock()
+		statusChanges = append(statusChanges, status)
+
+		err := statusManager.UpdateStatusFromRateLimit(providerID, status)
+		if err != nil {
+			t.Errorf("Status update failed: %v", err)
+		}
+	}
+
+	rateLimitManager.RegisterStatusCallback(statusCallback)
+
+	// Test status progression: Normal -> Warning -> Throttled
+
+	// Initial state should be Normal (no calls yet)
+	initialStatus := rateLimitManager.GetProviderStatus("test")
+	if initialStatus != "Normal" {
+		t.Errorf("Expected initial status 'Normal', got '%s'", initialStatus)
+	}
+
+	// Register 2 calls (67% of 3) - should trigger Warning
+	for i := 0; i < 2; i++ {
+		err := rateLimitManager.RegisterCall("test")
+		if err != nil {
+			t.Fatalf("RegisterCall failed: %v", err)
+		}
+	}
+
+	// Wait for callback processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Register 1 more call (100% of 3) - should trigger Throttled
+	err := rateLimitManager.RegisterCall("test")
+	if err != nil {
+		t.Fatalf("RegisterCall failed: %v", err)
+	}
+
+	// Wait for callback processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify status changes were recorded
+	statusMutex.Lock()
+	defer statusMutex.Unlock()
+
+	expectedChanges := []string{"Warning", "Throttled"}
+	if len(statusChanges) != len(expectedChanges) {
+		t.Fatalf("Expected %d status changes, got %d: %v", len(expectedChanges), len(statusChanges), statusChanges)
+	}
+
+	for i, expected := range expectedChanges {
+		if statusChanges[i] != expected {
+			t.Errorf("Expected status change %d to be '%s', got '%s'", i, expected, statusChanges[i])
+		}
+	}
+
+	// Verify Discord status updates were called
+	if !mockSession.updateCalled {
+		t.Error("Expected Discord status updates to be called")
+	}
+
+	// Verify final Discord status is Do Not Disturb
+	if mockSession.lastStatus != discordgo.StatusDoNotDisturb {
+		t.Errorf("Expected final Discord status to be DoNotDisturb, got %s", mockSession.lastStatus)
+	}
+
+	if mockSession.lastActivity == nil || mockSession.lastActivity.Name != "API: Throttled" {
+		t.Errorf("Expected final activity to be 'API: Throttled', got %v", mockSession.lastActivity)
+	}
+
+	t.Logf("Status management integration test completed successfully")
+	t.Logf("Status changes: %v", statusChanges)
+	t.Logf("Final Discord status: %s with activity: %s",
+		mockSession.lastStatus,
+		mockSession.lastActivity.Name)
+}
+
+func TestStatusManagementConfiguration(t *testing.T) {
+	// Test environment variable configuration
+	tests := []struct {
+		name             string
+		enabledEnv       string
+		intervalEnv      string
+		expectedEnabled  bool
+		expectedInterval time.Duration
+		expectError      bool
+	}{
+		{
+			name:             "Default values",
+			enabledEnv:       "",
+			intervalEnv:      "",
+			expectedEnabled:  true,
+			expectedInterval: 30 * time.Second,
+			expectError:      false,
+		},
+		{
+			name:             "Explicit enabled",
+			enabledEnv:       "true",
+			intervalEnv:      "10s",
+			expectedEnabled:  true,
+			expectedInterval: 10 * time.Second,
+			expectError:      false,
+		},
+		{
+			name:             "Disabled",
+			enabledEnv:       "false",
+			intervalEnv:      "5s",
+			expectedEnabled:  false,
+			expectedInterval: 5 * time.Second,
+			expectError:      false,
+		},
+		{
+			name:        "Invalid enabled value",
+			enabledEnv:  "invalid",
+			intervalEnv: "30s",
+			expectError: true,
+		},
+		{
+			name:        "Invalid interval format",
+			enabledEnv:  "true",
+			intervalEnv: "invalid",
+			expectError: true,
+		},
+		{
+			name:        "Interval too short",
+			enabledEnv:  "true",
+			intervalEnv: "500ms",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables
+			if tt.enabledEnv != "" {
+				os.Setenv("BOT_STATUS_UPDATE_ENABLED", tt.enabledEnv)
+			} else {
+				os.Unsetenv("BOT_STATUS_UPDATE_ENABLED")
+			}
+
+			if tt.intervalEnv != "" {
+				os.Setenv("BOT_STATUS_UPDATE_INTERVAL", tt.intervalEnv)
+			} else {
+				os.Unsetenv("BOT_STATUS_UPDATE_INTERVAL")
+			}
+
+			// Test configuration loading
+			enabled, interval, err := loadStatusConfig()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if enabled != tt.expectedEnabled {
+				t.Errorf("Expected enabled=%v, got %v", tt.expectedEnabled, enabled)
+			}
+
+			if interval != tt.expectedInterval {
+				t.Errorf("Expected interval=%v, got %v", tt.expectedInterval, interval)
+			}
+		})
+	}
+
+	// Clean up environment variables
+	os.Unsetenv("BOT_STATUS_UPDATE_ENABLED")
+	os.Unsetenv("BOT_STATUS_UPDATE_INTERVAL")
+}
+
+// loadStatusConfig is a copy of the function from main.go for testing
+func loadStatusConfig() (bool, time.Duration, error) {
+	// Load status update enabled flag (default: true)
+	enabledStr := os.Getenv("BOT_STATUS_UPDATE_ENABLED")
+	if enabledStr == "" {
+		enabledStr = "true" // Default value
+	}
+
+	enabled, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_ENABLED: %s", enabledStr)
+	}
+
+	// Load status update interval (default: 30s)
+	intervalStr := os.Getenv("BOT_STATUS_UPDATE_INTERVAL")
+	if intervalStr == "" {
+		intervalStr = "30s" // Default value
+	}
+
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_INTERVAL: %s", intervalStr)
+	}
+
+	if interval < time.Second {
+		return false, 0, fmt.Errorf("BOT_STATUS_UPDATE_INTERVAL must be at least 1 second: %s", intervalStr)
+	}
+
+	return enabled, interval, nil
 }

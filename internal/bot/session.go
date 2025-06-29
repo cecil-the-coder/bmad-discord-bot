@@ -4,20 +4,39 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/bwmarrin/discordgo"
 )
+
+// BotSession defines the interface for Discord bot session operations
+type BotSession interface {
+	// Token validation
+	IsTokenValid() error
+	GetToken() string
+
+	// Status management
+	UpdatePresence(status discordgo.Status, activity *discordgo.Activity) error
+}
 
 // Session manages Discord bot session lifecycle
 type Session struct {
-	logger *slog.Logger
-	token  string
+	logger         *slog.Logger
+	token          string
+	discordSession *discordgo.Session
 }
 
 // NewSession creates a new Discord bot session
 func NewSession(token string, logger *slog.Logger) *Session {
 	return &Session{
-		logger: logger,
-		token:  token,
+		logger:         logger,
+		token:          token,
+		discordSession: nil, // Will be set when Discord connection is established
 	}
+}
+
+// SetDiscordSession sets the underlying Discord session for status management
+func (s *Session) SetDiscordSession(session *discordgo.Session) {
+	s.discordSession = session
 }
 
 // IsTokenValid validates the Discord bot token format and content
@@ -57,4 +76,33 @@ func (s *Session) GetToken() string {
 	return s.token
 }
 
-// TODO: Implement Discord session management in current story
+// UpdatePresence updates the bot's Discord presence status and activity
+func (s *Session) UpdatePresence(status discordgo.Status, activity *discordgo.Activity) error {
+	if s.discordSession == nil {
+		return fmt.Errorf("discord session not initialized")
+	}
+
+	var activities []*discordgo.Activity
+	if activity != nil {
+		activities = []*discordgo.Activity{activity}
+	}
+
+	err := s.discordSession.UpdateStatusComplex(discordgo.UpdateStatusData{
+		Status:     string(status),
+		Activities: activities,
+	})
+
+	if err != nil {
+		s.logger.Error("Failed to update Discord presence",
+			"status", status,
+			"activity", activity,
+			"error", err)
+		return fmt.Errorf("failed to update Discord presence: %w", err)
+	}
+
+	s.logger.Debug("Discord presence updated",
+		"status", status,
+		"activity", activity)
+
+	return nil
+}

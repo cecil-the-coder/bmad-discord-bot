@@ -53,6 +53,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate status management configuration
+	statusEnabled, statusInterval, err := loadStatusConfig()
+	if err != nil {
+		slog.Error("Failed to load status configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize rate limit manager with provider configurations
 	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{rateLimitConfig})
 	slog.Info("Rate limit manager initialized",
@@ -99,6 +106,41 @@ func main() {
 	if err != nil {
 		slog.Error("Error opening Discord connection", "error", err)
 		os.Exit(1)
+	}
+
+	// Initialize status management if enabled
+	if statusEnabled {
+		// Create bot session wrapper
+		botSession := bot.NewSession(token, logger)
+		botSession.SetDiscordSession(dg)
+
+		// Create status manager
+		statusManager := bot.NewDiscordStatusManager(botSession, logger)
+		statusManager.SetDebounceInterval(statusInterval)
+
+		// Register status callback with rate limiter
+		statusCallback := func(providerID, status string) {
+			err := statusManager.UpdateStatusFromRateLimit(providerID, status)
+			if err != nil {
+				slog.Warn("Failed to update Discord status from rate limit",
+					"provider", providerID,
+					"status", status,
+					"error", err)
+			}
+		}
+		rateLimitManager.RegisterStatusCallback(statusCallback)
+
+		// Set initial status
+		err = statusManager.SetOnline("API: Ready")
+		if err != nil {
+			slog.Warn("Failed to set initial Discord status", "error", err)
+		} else {
+			slog.Info("Status management initialized successfully",
+				"enabled", statusEnabled,
+				"debounce_interval", statusInterval)
+		}
+	} else {
+		slog.Info("Status management disabled by configuration")
 	}
 
 	// Log thread-related capabilities
@@ -240,6 +282,41 @@ func loadRateLimitConfig() (monitor.ProviderConfig, error) {
 		"throttled_threshold", config.Thresholds["throttled"])
 
 	return config, nil
+}
+
+// loadStatusConfig loads status management configuration from environment variables
+func loadStatusConfig() (bool, time.Duration, error) {
+	// Load status update enabled flag (default: true)
+	enabledStr := os.Getenv("BOT_STATUS_UPDATE_ENABLED")
+	if enabledStr == "" {
+		enabledStr = "true" // Default value
+	}
+
+	enabled, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_ENABLED: %s", enabledStr)
+	}
+
+	// Load status update interval (default: 30s)
+	intervalStr := os.Getenv("BOT_STATUS_UPDATE_INTERVAL")
+	if intervalStr == "" {
+		intervalStr = "30s" // Default value
+	}
+
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_INTERVAL: %s", intervalStr)
+	}
+
+	if interval < time.Second {
+		return false, 0, fmt.Errorf("BOT_STATUS_UPDATE_INTERVAL must be at least 1 second: %s", intervalStr)
+	}
+
+	slog.Info("Status management configuration loaded",
+		"enabled", enabled,
+		"update_interval", interval)
+
+	return enabled, interval, nil
 }
 
 // validateGeminiCLIPath validates the Gemini CLI path and accessibility

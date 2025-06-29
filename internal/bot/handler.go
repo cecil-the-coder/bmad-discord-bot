@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"bmad-knowledge-bot/internal/service"
+	"github.com/bwmarrin/discordgo"
 )
 
 // ThreadOwnership tracks metadata for bot-created threads
@@ -19,8 +19,8 @@ type ThreadOwnership struct {
 
 // Handler manages Discord event handling
 type Handler struct {
-	logger         *slog.Logger
-	aiService      service.AIService
+	logger          *slog.Logger
+	aiService       service.AIService
 	threadOwnership map[string]*ThreadOwnership // threadID -> ownership info
 }
 
@@ -42,13 +42,13 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 
 	// Detect thread context for proper handling
 	isInThread := h.isMessageInThread(s, m.ChannelID)
-	
+
 	// Check if this is a bot-owned thread and if user should get auto-response
 	shouldAutoRespond := false
 	if isInThread {
 		shouldAutoRespond = h.shouldAutoRespondInThread(s, m.ChannelID, m.Author.ID, s.State.User.ID)
 	}
-	
+
 	// Log incoming message for debugging including thread context
 	h.logger.Info("Received message",
 		"author", m.Author.Username,
@@ -71,7 +71,7 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 	// Check if the bot is mentioned in the message
 	botMentioned := false
 	var queryText string
-	
+
 	// Check for bot mentions in the message
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
@@ -91,7 +91,7 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 
 	// Determine if we should process this message
 	shouldProcess := botMentioned || shouldAutoRespond
-	
+
 	if shouldProcess {
 		// Extract query text based on whether it's a mention or auto-response
 		if botMentioned {
@@ -100,7 +100,7 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 			// For auto-response, use the entire message content as the query
 			queryText = strings.TrimSpace(m.Content)
 		}
-		
+
 		if strings.TrimSpace(queryText) == "" {
 			h.logger.Info("Message processed but no query text found",
 				"message_id", m.ID,
@@ -127,18 +127,18 @@ func (h *Handler) isMessageInThread(s *discordgo.Session, channelID string) bool
 		h.logger.Error("Session or ratelimiter is nil, cannot check thread status", "channel_id", channelID)
 		return false
 	}
-	
+
 	// Get channel information to determine if it's a thread
 	channel, err := s.Channel(channelID)
 	if err != nil {
 		h.logger.Error("Failed to get channel information", "error", err, "channel_id", channelID)
 		return false
 	}
-	
+
 	// Check if the channel type indicates it's a thread
 	return channel.Type == discordgo.ChannelTypeGuildPublicThread ||
-		   channel.Type == discordgo.ChannelTypeGuildPrivateThread ||
-		   channel.Type == discordgo.ChannelTypeGuildNewsThread
+		channel.Type == discordgo.ChannelTypeGuildPrivateThread ||
+		channel.Type == discordgo.ChannelTypeGuildNewsThread
 }
 
 // extractQueryFromMention extracts the query text from a message that mentions the bot
@@ -148,12 +148,12 @@ func (h *Handler) extractQueryFromMention(content string, botID string) string {
 		"<@" + botID + ">",
 		"<@!" + botID + ">",
 	}
-	
+
 	cleanedContent := content
 	for _, pattern := range mentionPatterns {
 		cleanedContent = strings.ReplaceAll(cleanedContent, pattern, "")
 	}
-	
+
 	// Trim whitespace and return the remaining query
 	return strings.TrimSpace(cleanedContent)
 }
@@ -169,20 +169,20 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 	if isInThread {
 		// Fetch thread history (limit to 50 messages for reasonable context window)
 		const historyLimit = 50
-		
+
 		// FIXED: Always include bot messages for proper contextual conversation
 		// Bot messages are essential for understanding follow-up questions with contextual references
 		includeAllMessages := true
-		
+
 		// Still count participants for logging purposes
 		participantCount, countErr := h.countThreadParticipants(s, m.ChannelID, s.State.User.ID)
 		if countErr != nil {
 			h.logger.Warn("Failed to count thread participants", "error", countErr, "channel_id", m.ChannelID)
 			participantCount = 1 // Assume single user on error
 		}
-		
+
 		threadMessages, historyErr := h.fetchThreadHistory(s, m.ChannelID, s.State.User.ID, historyLimit, includeAllMessages)
-		
+
 		if historyErr != nil {
 			h.logger.Error("Failed to fetch thread history, falling back to regular query",
 				"error", historyErr, "channel_id", m.ChannelID)
@@ -191,13 +191,13 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 		} else {
 			// Format conversation history for AI context
 			conversationHistory := h.formatConversationHistory(threadMessages)
-			
+
 			h.logger.Info("Using contextual query with thread history",
 				"history_messages", len(threadMessages),
 				"history_length", len(conversationHistory),
 				"participant_count", participantCount,
 				"include_all_messages", includeAllMessages)
-			
+
 			// Use contextual query with conversation history
 			response, err = h.aiService.QueryWithContext(query, conversationHistory)
 		}
@@ -208,7 +208,7 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 
 	if err != nil {
 		h.logger.Error("AI service error", "error", err, "query", query)
-		
+
 		// Send user-friendly error message
 		errorMsg := "I'm sorry, I encountered an error while processing your request. Please try again later."
 		if _, err := s.ChannelMessageSendReply(m.ChannelID, errorMsg, m.Reference()); err != nil {
@@ -250,7 +250,7 @@ func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.Mes
 	thread, err := s.ThreadStart(m.ChannelID, threadTitle, discordgo.ChannelTypeGuildPublicThread, 60) // 60 minute auto-archive
 	if err != nil {
 		h.logger.Error("Failed to create thread", "error", err, "channel_id", m.ChannelID)
-		
+
 		// Fallback: reply in main channel if thread creation fails
 		errorMsg := "I encountered an issue creating a thread for our conversation. Here's my response:"
 		fallbackResponse := errorMsg + "\n\n" + response
@@ -271,7 +271,7 @@ func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.Mes
 	// Post the AI response as the first message in the newly created thread
 	if _, err := s.ChannelMessageSend(thread.ID, response); err != nil {
 		h.logger.Error("Failed to send AI response in new thread", "error", err, "thread_id", thread.ID)
-		
+
 		// If we can't post in the thread, try to reply in main channel as fallback
 		errorMsg := "I created a thread but couldn't post my response there. Here's my answer:"
 		fallbackResponse := errorMsg + "\n\n" + response
@@ -294,7 +294,7 @@ func (h *Handler) createFallbackTitle(query string) string {
 	if len(words) == 0 {
 		return "Question"
 	}
-	
+
 	title := ""
 	for _, word := range words {
 		testTitle := title + " " + word
@@ -303,17 +303,17 @@ func (h *Handler) createFallbackTitle(query string) string {
 		}
 		title = testTitle
 	}
-	
+
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return "Question"
 	}
-	
+
 	// Add ellipsis if we truncated
 	if len(words) > len(strings.Fields(title)) {
 		title += "..."
 	}
-	
+
 	return title
 }
 
@@ -324,19 +324,19 @@ func (h *Handler) fetchThreadHistory(s *discordgo.Session, channelID string, bot
 		"channel_id", channelID,
 		"limit", limit,
 		"include_all_messages", includeAllMessages)
-	
+
 	// Fetch messages from the thread (Discord returns in reverse chronological order)
 	messages, err := s.ChannelMessages(channelID, limit, "", "", "")
 	if err != nil {
 		h.logger.Error("Failed to fetch thread messages", "error", err, "channel_id", channelID)
 		return nil, fmt.Errorf("failed to fetch thread messages: %w", err)
 	}
-	
+
 	// Filter messages and reverse to chronological order
 	var filteredMessages []*discordgo.Message
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
-		
+
 		if includeAllMessages {
 			// Include all messages for multi-user threads (better context)
 			filteredMessages = append(filteredMessages, msg)
@@ -347,13 +347,13 @@ func (h *Handler) fetchThreadHistory(s *discordgo.Session, channelID string, bot
 			}
 		}
 	}
-	
+
 	h.logger.Info("Thread history retrieved",
 		"total_messages", len(messages),
 		"filtered_messages", len(filteredMessages),
 		"channel_id", channelID,
 		"include_all_messages", includeAllMessages)
-	
+
 	return filteredMessages, nil
 }
 
@@ -362,7 +362,7 @@ func (h *Handler) formatConversationHistory(messages []*discordgo.Message) strin
 	if len(messages) == 0 {
 		return ""
 	}
-	
+
 	var conversationText strings.Builder
 	for _, msg := range messages {
 		// Format: "Username: Message content" (with special handling for bot messages)
@@ -373,7 +373,7 @@ func (h *Handler) formatConversationHistory(messages []*discordgo.Message) strin
 			conversationText.WriteString(fmt.Sprintf("%s: %s\n", msg.Author.Username, msg.Content))
 		}
 	}
-	
+
 	return strings.TrimSpace(conversationText.String())
 }
 
@@ -384,9 +384,9 @@ func (h *Handler) recordThreadOwnership(threadID string, originalUserID string, 
 		CreatedBy:      botID,
 		CreationTime:   time.Now().Unix(),
 	}
-	
+
 	h.threadOwnership[threadID] = ownership
-	
+
 	h.logger.Info("Thread ownership recorded",
 		"thread_id", threadID,
 		"original_user", originalUserID,
@@ -400,7 +400,7 @@ func (h *Handler) countThreadParticipants(s *discordgo.Session, threadID string,
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch thread messages for participant count: %w", err)
 	}
-	
+
 	// Use map to track unique participants (excluding the bot)
 	participants := make(map[string]bool)
 	for _, msg := range messages {
@@ -408,7 +408,7 @@ func (h *Handler) countThreadParticipants(s *discordgo.Session, threadID string,
 			participants[msg.Author.ID] = true
 		}
 	}
-	
+
 	return len(participants), nil
 }
 
@@ -420,7 +420,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 		// Thread not tracked as bot-created
 		return false
 	}
-	
+
 	// Check if the message author is the original user who started the conversation
 	if ownership.OriginalUserID != authorID {
 		h.logger.Info("Message from different user in bot thread, requiring mention",
@@ -429,7 +429,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 			"original_user", ownership.OriginalUserID)
 		return false
 	}
-	
+
 	// Check if the thread was created by this bot instance
 	if ownership.CreatedBy != botID {
 		h.logger.Info("Thread created by different bot, requiring mention",
@@ -438,7 +438,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 			"current_bot", botID)
 		return false
 	}
-	
+
 	// NEW: Check if there are multiple participants in the thread
 	// Skip participant count check if session is nil (for tests)
 	if s != nil {
@@ -448,7 +448,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 				"error", err, "thread_id", threadID)
 			return false
 		}
-		
+
 		// If there are multiple participants, require @mention even from original user
 		if participantCount > 1 {
 			h.logger.Info("Multiple participants in thread, requiring mention from all users",
@@ -458,11 +458,11 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 			return false
 		}
 	}
-	
+
 	h.logger.Info("Auto-response triggered for original user in bot thread",
 		"thread_id", threadID,
 		"user_id", authorID)
-	
+
 	return true
 }
 
@@ -476,7 +476,7 @@ func (h *Handler) getThreadOwnership(threadID string) (*ThreadOwnership, bool) {
 func (h *Handler) cleanupThreadOwnership(maxAge int64) {
 	currentTime := time.Now().Unix()
 	cutoffTime := currentTime - maxAge
-	
+
 	for threadID, ownership := range h.threadOwnership {
 		// If maxAge is negative, force cleanup of all records
 		// Otherwise, clean up records older than cutoffTime
