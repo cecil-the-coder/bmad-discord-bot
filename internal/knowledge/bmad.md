@@ -6,34 +6,34 @@ You are an expert on the BMAD-METHOD. Your knowledge is based solely on the prov
 
 ## Overview
 
-[cite\_start]BMAD-METHOD (Breakthrough Method of Agile AI-driven Development) is a framework that combines AI agents with Agile development methodologies. [cite: 85] [cite\_start]The v4 system introduces a modular architecture with improved dependency management, bundle optimization, and support for both web and IDE environments. [cite: 85]
+BMAD-METHOD (Breakthrough Method of Agile AI-driven Development) is a framework that combines AI agents with Agile development methodologies. The v4 system introduces a modular architecture with improved dependency management, bundle optimization, and support for both web and IDE environments.
 
 ### Key Features
 
-  * [cite\_start]**Modular Agent System**: Specialized AI agents for each Agile role [cite: 86]
-  * [cite\_start]**Build System**: Automated dependency resolution and optimization [cite: 86]
-  * [cite\_start]**Dual Environment Support**: Optimized for both web UIs and IDEs [cite: 86]
-  * [cite\_start]**Reusable Resources**: Portable templates, tasks, and checklists [cite: 86]
-  * [cite\_start]**Slash Command Integration**: Quick agent switching and control [cite: 86]
+  * **Modular Agent System**: Specialized AI agents for each Agile role
+  * **Build System**: Automated dependency resolution and optimization
+  * **Dual Environment Support**: Optimized for both web UIs and IDEs
+  * **Reusable Resources**: Portable templates, tasks, and checklists
+  * **Slash Command Integration**: Quick agent switching and control
 
 ### When to Use BMAD
 
-  * [cite\_start]**New Projects (Greenfield)**: Complete end-to-end development [cite: 86]
-  * [cite\_start]**Existing Projects (Brownfield)**: Feature additions and enhancements [cite: 86]
-  * [cite\_start]**Team Collaboration**: Multiple roles working together [cite: 86]
-  * [cite\_start]**Quality Assurance**: Structured testing and validation [cite: 86]
-  * [cite\_start]**Documentation**: Professional PRDs, architecture docs, user stories [cite: 86]
+  * **New Projects (Greenfield)**: Complete end-to-end development
+  * **Existing Projects (Brownfield)**: Feature additions and enhancements
+  * **Team Collaboration**: Multiple roles working together
+  * **Quality Assurance**: Structured testing and validation
+  * **Documentation**: Professional PRDs, architecture docs, user stories
 
 ## How BMAD Works
 
 ### The Core Method
 
-[cite\_start]BMAD transforms you into a "Vibe CEO" - directing a team of specialized AI agents through structured workflows. [cite: 87] Here's how:
+BMAD transforms you into a "Vibe CEO" - directing a team of specialized AI agents through structured workflows. Here's how:
 
-1.  [cite\_start]**You Direct, AI Executes**: You provide vision and decisions; agents handle implementation details [cite: 88]
-2.  [cite\_start]**Specialized Agents**: Each agent masters one role (PM, Developer, Architect, etc.) [cite: 88]
-3.  [cite\_start]**Structured Workflows**: Proven patterns guide you from idea to deployed code [cite: 88]
-4.  [cite\_start]**Clean Handoffs**: Fresh context windows ensure agents stay focused and effective [cite: 88]
+1.  **You Direct, AI Executes**: You provide vision and decisions; agents handle implementation details
+2.  **Specialized Agents**: Each agent masters one role (PM, Developer, Architect, etc.)
+3.  **Structured Workflows**: Proven patterns guide you from idea to deployed code
+4.  **Clean Handoffs**: Fresh context windows ensure agents stay focused and effective
 
 ### The Two-Phase Approach
 
@@ -54,12 +54,12 @@ You are an expert on the BMAD-METHOD. Your knowledge is based solely on the prov
 ### The Development Loop
 
 ```text
-1. [cite_start]SM Agent (New Chat) → Creates next story from sharded docs [cite: 89]
-2. [cite_start]You → Review and approve story [cite: 89]
-3. [cite_start]Dev Agent (New Chat) → Implements approved story [cite: 89]
-4. [cite_start]QA Agent (New Chat) → Reviews and refactors code [cite: 89]
-5. [cite_start]You → Verify completion [cite: 89]
-6. [cite_start]Repeat until epic complete [cite: 89]
+1. SM Agent (New Chat) → Creates next story from sharded docs
+2. You → Review and approve story
+3. Dev Agent (New Chat) → Implements approved story
+4. QA Agent (New Chat) → Reviews and refactors code
+5. You → Verify completion
+6. Repeat until epic complete
 ```
 
 ### Why This Works
@@ -76,60 +76,60 @@ You are an expert on the BMAD-METHOD. Your knowledge is based solely on the prov
 
 #### Option 1: Web UI
 
-[cite\_start]**Best for**: ChatGPT, Claude, Gemini users who want to start immediately [cite: 90]
+**Best for**: ChatGPT, Claude, Gemini users who want to start immediately
 
-1.  [cite\_start]Navigate to `dist/teams/` [cite: 90]
-2.  [cite\_start]Copy `team-fullstack.txt` content [cite: 90]
-3.  [cite\_start]Create new Gemini Gem or CustomGPT [cite: 90]
-4.  [cite\_start]Upload file with instructions: "Your critical operating instructions are attached, do not break character as directed" [cite: 90]
-5.  [cite\_start]Type `/help` to see available commands [cite: 90]
+1.  Navigate to `dist/teams/`
+2.  Copy `team-fullstack.txt` content
+3.  Create new Gemini Gem or CustomGPT
+4.  Upload file with instructions: "Your critical operating instructions are attached, do not break character as directed"
+5.  Type `/help` to see available commands
 
 #### Option 2: IDE Integration
 
-[cite\_start]**Best for**: Cursor, Claude Code, Windsurf, Cline, Roo Code users [cite: 91]
+**Best for**: Cursor, Claude Code, Windsurf, Cline, Roo Code users
 
 ```bash
 # Interactive installation (recommended)
-[cite_start]npx bmad-method install [cite: 91]
+npx bmad-method install
 ```
 
 **Installation Steps**:
 
-  * [cite\_start]Choose "Complete installation" [cite: 91]
-  * [cite\_start]Select your IDE from supported options: [cite: 91]
-      * [cite\_start]**Cursor**: Native AI integration [cite: 91]
-      * [cite\_start]**Claude Code**: Anthropic's official IDE [cite: 91]
-      * [cite\_start]**Windsurf**: Built-in AI capabilities [cite: 91]
-      * [cite\_start]**Cline**: VS Code extension with AI features [cite: 91]
-      * [cite\_start]**Roo Code**: Web-based IDE with agent support [cite: 91]
+  * Choose "Complete installation"
+  * Select your IDE from supported options:
+      * **Cursor**: Native AI integration
+      * **Claude Code**: Anthropic's official IDE
+      * **Windsurf**: Built-in AI capabilities
+      * **Cline**: VS Code extension with AI features
+      * **Roo Code**: Web-based IDE with agent support
 
-[cite\_start]**Note for VS Code Users**: BMAD-METHOD assumes when you mention "VS Code" that you're using it with an AI-powered extension like GitHub Copilot, Cline, or Roo. [cite: 92] [cite\_start]Standard VS Code without AI capabilities cannot run BMAD agents. [cite: 92] [cite\_start]The installer includes built-in support for Cline and Roo. [cite: 92]
+**Note for VS Code Users**: BMAD-METHOD assumes when you mention "VS Code" that you're using it with an AI-powered extension like GitHub Copilot, Cline, or Roo. Standard VS Code without AI capabilities cannot run BMAD agents. The installer includes built-in support for Cline and Roo.
 
 **Verify Installation**:
 
-  * [cite\_start]`.bmad-core/` folder created with all agents [cite: 93]
-  * [cite\_start]IDE-specific integration files created [cite: 93]
-  * [cite\_start]All agent commands/rules/modes available [cite: 93]
+  * `.bmad-core/` folder created with all agents
+  * IDE-specific integration files created
+  * All agent commands/rules/modes available
 
-[cite\_start]**Remember**: At its core, BMAD-METHOD is about mastering and harnessing prompt engineering. [cite: 94] [cite\_start]Any IDE with AI agent support can use BMAD - the framework provides the structured prompts and workflows that make AI development effective [cite: 94]
+**Remember**: At its core, BMAD-METHOD is about mastering and harnessing prompt engineering. Any IDE with AI agent support can use BMAD - the framework provides the structured prompts and workflows that make AI development effective
 
 ### Environment Selection Guide
 
 **Use Web UI for**:
 
-  * [cite\_start]Initial planning and documentation (PRD, architecture) [cite: 95]
-  * [cite\_start]Cost-effective document creation (especially with Gemini) [cite: 95]
-  * [cite\_start]Brainstorming and analysis phases [cite: 95]
-  * [cite\_start]Multi-agent consultation and planning [cite: 95]
+  * Initial planning and documentation (PRD, architecture)
+  * Cost-effective document creation (especially with Gemini)
+  * Brainstorming and analysis phases
+  * Multi-agent consultation and planning
 
 **Use IDE for**:
 
-  * [cite\_start]Active development and coding [cite: 95]
-  * [cite\_start]File operations and project integration [cite: 95]
-  * [cite\_start]Document sharding and story management [cite: 95]
-  * [cite\_start]Implementation workflow (SM/Dev cycles) [cite: 95]
+  * Active development and coding
+  * File operations and project integration
+  * Document sharding and story management
+  * Implementation workflow (SM/Dev cycles)
 
-[cite\_start]**Cost-Saving Tip**: Create large documents (PRDs, architecture) in web UI, then copy to `docs/prd.md` and `docs/architecture.md` in your project before switching to IDE for development. [cite: 95]
+**Cost-Saving Tip**: Create large documents (PRDs, architecture) in web UI, then copy to `docs/prd.md` and `docs/architecture.md` in your project before switching to IDE for development.
 
 ### IDE-Only Workflow Considerations
 
@@ -151,66 +151,66 @@ You are an expert on the BMAD-METHOD. Your knowledge is based solely on the prov
 
 **Using Web Agents in IDE**:
 
-  * [cite\_start]**NOT RECOMMENDED**: Web agents (PM, Architect) have rich dependencies designed for large contexts [cite: 96]
-  * [cite\_start]**Why it matters**: Dev agents are kept lean to maximize coding context [cite: 96]
-  * [cite\_start]**The principle**: "Dev agents code, planning agents plan" - mixing breaks this optimization [cite: 96]
+  * **NOT RECOMMENDED**: Web agents (PM, Architect) have rich dependencies designed for large contexts
+  * **Why it matters**: Dev agents are kept lean to maximize coding context
+  * **The principle**: "Dev agents code, planning agents plan" - mixing breaks this optimization
 
 **About bmad-master and bmad-orchestrator**:
 
-  * [cite\_start]**bmad-master**: CAN do any task without switching agents, BUT... [cite: 96]
-  * [cite\_start]**Still use specialized agents for planning**: PM, Architect, and UX Expert have tuned personas that produce better results [cite: 96]
-  * [cite\_start]**Why specialization matters**: Each agent's personality and focus creates higher quality outputs [cite: 96]
-  * [cite\_start]**If using bmad-master/orchestrator**: Fine for planning phases, but... [cite: 96]
+  * **bmad-master**: CAN do any task without switching agents, BUT...
+  * **Still use specialized agents for planning**: PM, Architect, and UX Expert have tuned personas that produce better results
+  * **Why specialization matters**: Each agent's personality and focus creates higher quality outputs
+  * **If using bmad-master/orchestrator**: Fine for planning phases, but...
 
 **CRITICAL RULE for Development**:
 
-  * [cite\_start]**ALWAYS use SM agent for story creation** - Never use bmad-master/orchestrator [cite: 97]
-  * [cite\_start]**ALWAYS use Dev agent for implementation** - Never use bmad-master/orchestrator [cite: 97]
-  * [cite\_start]**Why this matters**: SM and Dev agents are specifically optimized for the development workflow [cite: 97]
-  * [cite\_start]**No exceptions**: Even if using bmad-master for everything else, switch to SM → Dev for implementation [cite: 97]
+  * **ALWAYS use SM agent for story creation** - Never use bmad-master/orchestrator
+  * **ALWAYS use Dev agent for implementation** - Never use bmad-master/orchestrator
+  * **Why this matters**: SM and Dev agents are specifically optimized for the development workflow
+  * **No exceptions**: Even if using bmad-master for everything else, switch to SM → Dev for implementation
 
 **Best Practice for IDE-Only**:
 
 1.  Use PM/Architect/UX agents for planning (better than bmad-master)
 2.  Create documents directly in project
 3.  Shard immediately after creation
-4.  [cite\_start]**MUST switch to SM agent** for story creation [cite: 97]
-5.  [cite\_start]**MUST switch to Dev agent** for implementation [cite: 97]
+  * **MUST switch to SM agent** for story creation
+  * **MUST switch to Dev agent** for implementation
 6.  Keep planning and coding in separate chat sessions
 
 ## Core Configuration (core-config.yml)
 
-[cite\_start]**New in V4**: The `bmad-core/core-config.yml` file is a critical innovation that enables BMAD to work seamlessly with any project structure, providing maximum flexibility and backwards compatibility. [cite: 98]
+**New in V4**: The `bmad-core/core-config.yml` file is a critical innovation that enables BMAD to work seamlessly with any project structure, providing maximum flexibility and backwards compatibility.
 
 ### What is core-config.yml?
 
-[cite\_start]This configuration file acts as a map for BMAD agents, telling them exactly where to find your project documents and how they're structured. [cite: 99] It enables:
+This configuration file acts as a map for BMAD agents, telling them exactly where to find your project documents and how they're structured. It enables:
 
-  * [cite\_start]**Version Flexibility**: Work with V3, V4, or custom document structures [cite: 99]
-  * [cite\_start]**Custom Locations**: Define where your documents and shards live [cite: 99]
-  * [cite\_start]**Developer Context**: Specify which files the dev agent should always load [cite: 99]
-  * [cite\_start]**Debug Support**: Built-in logging for troubleshooting [cite: 99]
+  * **Version Flexibility**: Work with V3, V4, or custom document structures
+  * **Custom Locations**: Define where your documents and shards live
+  * **Developer Context**: Specify which files the dev agent should always load
+  * **Debug Support**: Built-in logging for troubleshooting
 
 ### Key Configuration Areas
 
 #### PRD Configuration
 
-  * [cite\_start]**prdVersion**: Tells agents if PRD follows v3 or v4 conventions [cite: 100]
-  * [cite\_start]**prdSharded**: Whether epics are embedded (false) or in separate files (true) [cite: 100]
-  * [cite\_start]**prdShardedLocation**: Where to find sharded epic files [cite: 100]
-  * [cite\_start]**epicFilePattern**: Pattern for epic filenames (e.g., `epic-{n}*.md`) [cite: 100]
+  * **prdVersion**: Tells agents if PRD follows v3 or v4 conventions
+  * **prdSharded**: Whether epics are embedded (false) or in separate files (true)
+  * **prdShardedLocation**: Where to find sharded epic files
+  * **epicFilePattern**: Pattern for epic filenames (e.g., `epic-{n}*.md`)
 
 #### Architecture Configuration
 
-  * [cite\_start]**architectureVersion**: v3 (monolithic) or v4 (sharded) [cite: 100]
-  * [cite\_start]**architectureSharded**: Whether architecture is split into components [cite: 100]
-  * [cite\_start]**architectureShardedLocation**: Where sharded architecture files live [cite: 100]
+  * **architectureVersion**: v3 (monolithic) or v4 (sharded)
+  * **architectureSharded**: Whether architecture is split into components
+  * **architectureShardedLocation**: Where sharded architecture files live
 
 #### Developer Files
 
-  * [cite\_start]**devLoadAlwaysFiles**: List of files the dev agent loads for every task [cite: 100]
-  * [cite\_start]**devDebugLog**: Where dev agent logs repeated failures [cite: 100]
-  * [cite\_start]**agentCoreDump**: Export location for chat conversations [cite: 100]
+  * **devLoadAlwaysFiles**: List of files the dev agent loads for every task
+  * **devDebugLog**: Where dev agent logs repeated failures
+  * **agentCoreDump**: Export location for chat conversations
 
 ### Why It Matters
 
@@ -245,22 +245,22 @@ architectureShardedLocation: docs/architecture
 
 ### Vibe CEO'ing
 
-[cite\_start]You are the "Vibe CEO" - thinking like a CEO with unlimited resources and a singular vision. [cite: 101] Your AI agents are your high-powered team, and your role is to:
+You are the "Vibe CEO" - thinking like a CEO with unlimited resources and a singular vision. Your AI agents are your high-powered team, and your role is to:
 
-  * [cite\_start]**Direct**: Provide clear instructions and objectives [cite: 101]
-  * [cite\_start]**Refine**: Iterate on outputs to achieve quality [cite: 101]
-  * [cite\_start]**Oversee**: Maintain strategic alignment across all agents [cite: 101]
+  * **Direct**: Provide clear instructions and objectives
+  * **Refine**: Iterate on outputs to achieve quality
+  * **Oversee**: Maintain strategic alignment across all agents
 
 ### Core Principles
 
-1.  [cite\_start]**MAXIMIZE\_AI\_LEVERAGE**: Push the AI to deliver more. [cite: 102] [cite\_start]Challenge outputs and iterate. [cite: 102]
-2.  [cite\_start]**QUALITY\_CONTROL**: You are the ultimate arbiter of quality. [cite: 103] [cite\_start]Review all outputs. [cite: 103]
-3.  [cite\_start]**STRATEGIC\_OVERSIGHT**: Maintain the high-level vision and ensure alignment. [cite: 104]
-4.  [cite\_start]**ITERATIVE\_REFINEMENT**: Expect to revisit steps. [cite: 104] [cite\_start]This is not a linear process. [cite: 104]
-5.  [cite\_start]**CLEAR\_INSTRUCTIONS**: Precise requests lead to better outputs. [cite: 105]
-6.  [cite\_start]**DOCUMENTATION\_IS\_KEY**: Good inputs (briefs, PRDs) lead to good outputs. [cite: 105]
-7.  [cite\_start]**START\_SMALL\_SCALE\_FAST**: Test concepts, then expand. [cite: 106]
-8.  [cite\_start]**EMBRACE\_THE\_CHAOS**: Adapt and overcome challenges. [cite: 106]
+1.  **MAXIMIZE\_AI\_LEVERAGE**: Push the AI to deliver more. Challenge outputs and iterate.
+2.  **QUALITY\_CONTROL**: You are the ultimate arbiter of quality. Review all outputs.
+3.  **STRATEGIC\_OVERSIGHT**: Maintain the high-level vision and ensure alignment.
+4.  **ITERATIVE\_REFINEMENT**: Expect to revisit steps. This is not a linear process.
+5.  **CLEAR\_INSTRUCTIONS**: Precise requests lead to better outputs.
+6.  **DOCUMENTATION\_IS\_KEY**: Good inputs (briefs, PRDs) lead to good outputs.
+7.  **START\_SMALL\_SCALE\_FAST**: Test concepts, then expand.
+8.  **EMBRACE\_THE\_CHAOS**: Adapt and overcome challenges.
 
 ### Key Workflow Principles
 
@@ -276,21 +276,21 @@ architectureShardedLocation: docs/architecture
 
 | Agent | Role | Primary Functions | When to Use |
 | :--- | :--- | :--- | :--- |
-| `analyst` | Business Analyst | [cite\_start]Market research, requirements gathering [cite: 108, 111] | [cite\_start]Project planning, competitive analysis [cite: 109, 111] |
-| `pm` | Product Manager | [cite\_start]PRD creation, feature prioritization [cite: 108, 112] | [cite\_start]Strategic planning, roadmaps [cite: 109, 113] |
-| `architect` | Solution Architect | [cite\_start]System design, technical architecture [cite: 108, 114] | [cite\_start]Complex systems, scalability planning [cite: 109, 114] |
-| `dev` | Developer | [cite\_start]Code implementation, debugging [cite: 108, 116] | [cite\_start]All development tasks [cite: 109, 117] |
-| `qa` | QA Specialist | [cite\_start]Test planning, quality assurance [cite: 108, 119] | [cite\_start]Testing strategies, bug validation [cite: 109, 120] |
-| `ux-expert` | UX Designer | [cite\_start]UI/UX design, prototypes [cite: 108, 122] | [cite\_start]User experience, interface design [cite: 109, 123] |
-| `po` | Product Owner | [cite\_start]Backlog management, story validation [cite: 108, 124] | [cite\_start]Story refinement, acceptance criteria [cite: 109, 125] |
-| `sm` | Scrum Master | [cite\_start]Sprint planning, story creation [cite: 108, 126] | [cite\_start]Project management, workflow [cite: 109, 127] |
+| `analyst` | Business Analyst | Market research, requirements gathering | Project planning, competitive analysis |
+| `pm` | Product Manager | PRD creation, feature prioritization | Strategic planning, roadmaps |
+| `architect` | Solution Architect | System design, technical architecture | Complex systems, scalability planning |
+| `dev` | Developer | Code implementation, debugging | All development tasks |
+| `qa` | QA Specialist | Test planning, quality assurance | Testing strategies, bug validation |
+| `ux-expert` | UX Designer | UI/UX design, prototypes | User experience, interface design |
+| `po` | Product Owner | Backlog management, story validation | Story refinement, acceptance criteria |
+| `sm` | Scrum Master | Sprint planning, story creation | Project management, workflow |
 
 ### Meta Agents
 
 | Agent | Role | Primary Functions | When to Use |
 | :--- | :--- | :--- | :--- |
-| `bmad-orchestrator` | [cite\_start]Team Coordinator [cite: 129] | [cite\_start]Multi-agent workflows, role switching [cite: 130] | [cite\_start]Complex multi-role tasks [cite: 131, 133] |
-| `bmad-master` | [cite\_start]Universal Expert [cite: 129, 134] | [cite\_start]All capabilities without switching [cite: 130, 134] | [cite\_start]Single-session comprehensive work [cite: 131, 135] |
+| `bmad-orchestrator` | Team Coordinator | Multi-agent workflows, role switching | Complex multi-role tasks |
+| `bmad-master` | Universal Expert | All capabilities without switching | Single-session comprehensive work |
 
 ### Agent Interaction Commands
 
@@ -321,10 +321,10 @@ architectureShardedLocation: docs/architecture
 
 ```text
 /pm create-doc prd
-[cite_start]/architect review system design [cite: 136]
-[cite_start]/dev implement story 1.2 [cite: 136]
+/architect review system design
+/dev implement story 1.2
 /help - Show available commands
-[cite_start]/switch agent-name - Change active agent (if orchestrator available) [cite: 136]
+/switch agent-name - Change active agent (if orchestrator available)
 ```
 
 ## Team Configurations
@@ -353,28 +353,28 @@ architectureShardedLocation: docs/architecture
 
 ### System Overview
 
-[cite\_start]The BMAD-Method is built around a modular architecture centered on the `bmad-core` directory, which serves as the brain of the entire system. [cite: 137] [cite\_start]This design enables the framework to operate effectively in both IDE environments (like Cursor, VS Code) and web-based AI interfaces (like ChatGPT, Gemini). [cite: 137]
+The BMAD-Method is built around a modular architecture centered on the `bmad-core` directory, which serves as the brain of the entire system. This design enables the framework to operate effectively in both IDE environments (like Cursor, VS Code) and web-based AI interfaces (like ChatGPT, Gemini).
 
 ### Key Architectural Components
 
 #### 1\. Agents (`bmad-core/agents/`)
 
-  * [cite\_start]**Purpose**: Each markdown file defines a specialized AI agent for a specific Agile role (PM, Dev, Architect, etc.) [cite: 138]
-  * [cite\_start]**Structure**: Contains YAML headers specifying the agent's persona, capabilities, and dependencies [cite: 138]
-  * [cite\_start]**Dependencies**: Lists of tasks, templates, checklists, and data files the agent can use [cite: 138]
-  * [cite\_start]**Startup Instructions**: Can load project-specific documentation for immediate context [cite: 138]
+  * **Purpose**: Each markdown file defines a specialized AI agent for a specific Agile role (PM, Dev, Architect, etc.)
+  * **Structure**: Contains YAML headers specifying the agent's persona, capabilities, and dependencies
+  * **Dependencies**: Lists of tasks, templates, checklists, and data files the agent can use
+  * **Startup Instructions**: Can load project-specific documentation for immediate context
 
 #### 2\. Agent Teams (`bmad-core/agent-teams/`)
 
-  * [cite\_start]**Purpose**: Define collections of agents bundled together for specific purposes [cite: 138]
-  * [cite\_start]**Examples**: `team-all.yml` (comprehensive bundle), `team-fullstack.yml` (full-stack development) [cite: 138]
-  * [cite\_start]**Usage**: Creates pre-packaged contexts for web UI environments [cite: 138]
+  * **Purpose**: Define collections of agents bundled together for specific purposes
+  * **Examples**: `team-all.yml` (comprehensive bundle), `team-fullstack.yml` (full-stack development)
+  * **Usage**: Creates pre-packaged contexts for web UI environments
 
 #### 3\. Workflows (`bmad-core/workflows/`)
 
-  * [cite\_start]**Purpose**: YAML files defining prescribed sequences of steps for specific project types [cite: 139]
-  * [cite\_start]**Types**: Greenfield (new projects) and Brownfield (existing projects) for UI, service, and fullstack development [cite: 139]
-  * [cite\_start]**Structure**: Defines agent interactions, artifacts created, and transition conditions [cite: 139]
+  * **Purpose**: YAML files defining prescribed sequences of steps for specific project types
+  * **Types**: Greenfield (new projects) and Brownfield (existing projects) for UI, service, and fullstack development
+  * **Structure**: Defines agent interactions, artifacts created, and transition conditions
 
 #### 4\. Reusable Resources
 
@@ -394,25 +394,25 @@ architectureShardedLocation: docs/architecture
 
 #### Web UI Environment
 
-  * [cite\_start]Uses pre-built bundles from `dist/teams` for stand alone 1 upload files for all agents and their assest with an orchestrating agent [cite: 140]
-  * [cite\_start]Single text files containing all agent dependencies are in `dist/agents/` - these are unnecessary unless you want to create a web agent that is only a single agent and not a team [cite: 140]
-  * [cite\_start]Created by the web-builder tool for upload to web interfaces [cite: 140]
-  * [cite\_start]Provides complete context in one package [cite: 140]
+  * Uses pre-built bundles from `dist/teams` for stand alone 1 upload files for all agents and their assest with an orchestrating agent
+  * Single text files containing all agent dependencies are in `dist/agents/` - these are unnecessary unless you want to create a web agent that is only a single agent and not a team
+  * Created by the web-builder tool for upload to web interfaces
+  * Provides complete context in one package
 
 ### Template Processing System
 
 BMAD employs a sophisticated template system with three key components:
 
-1.  [cite\_start]**Template Format** (`utils/template-format.md`): Defines markup language for variable substitution and AI processing directives [cite: 141]
-2.  [cite\_start]**Document Creation** (`tasks/create-doc.md`): Orchestrates template selection and user interaction [cite: 141]
-3.  [cite\_start]**Advanced Elicitation** (`tasks/advanced-elicitation.md`): Provides interactive refinement through structured brainstorming [cite: 141]
+1.  **Template Format** (`utils/template-format.md`): Defines markup language for variable substitution and AI processing directives
+2.  **Document Creation** (`tasks/create-doc.md`): Orchestrates template selection and user interaction
+3.  **Advanced Elicitation** (`tasks/advanced-elicitation.md`): Provides interactive refinement through structured brainstorming
 
 **Template Features**:
 
-  * [cite\_start]**Self-contained**: Templates embed both output structure and processing instructions [cite: 141]
-  * [cite\_start]**Variable Substitution**: `{{placeholders}}` for dynamic content [cite: 141]
-  * [cite\_start]**AI Processing Directives**: `[[LLM: instructions]]` for AI-only processing [cite: 141]
-  * [cite\_start]**Interactive Refinement**: Built-in elicitation processes for quality improvement [cite: 141]
+  * **Self-contained**: Templates embed both output structure and processing instructions
+  * **Variable Substitution**: `{{placeholders}}` for dynamic content
+  * **AI Processing Directives**: `[[LLM: instructions]]` for AI-only processing
+  * **Interactive Refinement**: Built-in elicitation processes for quality improvement
 
 ### Technical Preferences Integration
 
@@ -427,12 +427,12 @@ The `technical-preferences.md` file serves as a persistent technical profile tha
 
 The `web-builder.js` tool creates web-ready bundles by:
 
-1.  [cite\_start]Reading agent or team definition files [cite: 142]
-2.  [cite\_start]Recursively resolving all dependencies [cite: 142]
-3.  [cite\_start]Concatenating content into single text files with clear separators [cite: 142]
-4.  [cite\_start]Outputting ready-to-upload bundles for web AI interfaces [cite: 142]
+1.  Reading agent or team definition files
+2.  Recursively resolving all dependencies
+3.  Concatenating content into single text files with clear separators
+4.  Outputting ready-to-upload bundles for web AI interfaces
 
-[cite\_start]This architecture enables seamless operation across environments while maintaining the rich, interconnected agent ecosystem that makes BMAD powerful. [cite: 143]
+This architecture enables seamless operation across environments while maintaining the rich, interconnected agent ecosystem that makes BMAD powerful.
 
 ## Complete Development Workflow
 
@@ -453,15 +453,15 @@ The `web-builder.js` tool creates web-ready bundles by:
 3.  **PRD Creation**: `/pm create-doc prd` - Comprehensive product requirements
 4.  **Architecture Design**: `/architect create-doc architecture` - Technical foundation
 5.  **Validation & Alignment**: `/po` run master checklist to ensure document consistency
-6.  [cite\_start]**Document Preparation**: Copy final documents to project as `docs/prd.md` and `docs/architecture.md` [cite: 144]
+6.  Document Preparation**: Copy final documents to project as `docs/prd.md` and `docs/architecture.md`
 
 #### Example Planning Prompts
 
 **For PRD Creation**:
 
 ```text
-[cite_start]"I want to build a [type] application that [core purpose]. [cite: 145]
-[cite_start]Help me brainstorm features and create a comprehensive PRD." [cite: 145]
+"I want to build a [type] application that [core purpose]."
+"Help me brainstorm features and create a comprehensive PRD."
 ```
 
 **For Architecture Design**:
@@ -484,17 +484,17 @@ that can handle [specific requirements]."
 **Prerequisites**: Planning documents must exist in `docs/` folder
 
 1.  **Document Sharding** (CRITICAL STEP):
-      * [cite\_start]Documents created by PM/Architect (in Web or IDE) MUST be sharded for development [cite: 146]
-      * [cite\_start]Two methods to shard: [cite: 146]
-        [cite\_start]a)  **Manual**: Drag `shard-doc` task + document file into chat [cite: 146]
-        [cite\_start]b)  **Agent**: Ask `@bmad-master` or `@po` to shard documents [cite: 146]
-      * [cite\_start]Shards `docs/prd.md` → `docs/prd/` folder [cite: 146]
-      * [cite\_start]Shards `docs/architecture.md` → `docs/architecture/` folder [cite: 146]
-      * [cite\_start]**WARNING**: Do NOT shard in Web UI - copying many small files is painful\! [cite: 146]
+      * Documents created by PM/Architect (in Web or IDE) MUST be sharded for development
+      * Two methods to shard:
+        a)  **Manual**: Drag `shard-doc` task + document file into chat
+        b)  **Agent**: Ask `@bmad-master` or `@po` to shard documents
+      * Shards `docs/prd.md` → `docs/prd/` folder
+      * Shards `docs/architecture.md` → `docs/architecture/` folder
+      * **WARNING**: Do NOT shard in Web UI - copying many small files is painful\!
 2.  **Verify Sharded Content**:
-      * [cite\_start]At least one `epic-n.md` file in `docs/prd/` with stories in development order [cite: 147]
-      * [cite\_start]Source tree document and coding standards for dev agent reference [cite: 147]
-      * [cite\_start]Sharded docs for SM agent story creation [cite: 147]
+      * At least one `epic-n.md` file in `docs/prd/` with stories in development order
+      * Source tree document and coding standards for dev agent reference
+      * Sharded docs for SM agent story creation
 
 **Resulting Folder Structure**:
 
@@ -502,15 +502,13 @@ that can handle [specific requirements]."
   * `docs/architecture/` - Broken down architecture sections
   * `docs/stories/` - Generated user stories
 
-<!-- end list -->
-
 3.  **Development Cycle** (Sequential, one story at a time):
 
     **CRITICAL CONTEXT MANAGEMENT**:
 
-      * [cite\_start]**Context windows matter\!** Always use fresh, clean context windows [cite: 148]
-      * [cite\_start]**Model selection matters\!** Use most powerful thinking model for SM story creation [cite: 148]
-      * [cite\_start]**ALWAYS start new chat between SM, Dev, and QA work** [cite: 148]
+      * **Context windows matter\!** Always use fresh, clean context windows
+      * **Model selection matters\!** Use most powerful thinking model for SM story creation
+      * **ALWAYS start new chat between SM, Dev, and QA work**
 
     **Step 1 - Story Creation**:
 
@@ -523,7 +521,7 @@ that can handle [specific requirements]."
 
       * **NEW CLEAN CHAT** → `@dev`
       * Agent asks which story to implement
-      * [cite\_start]Include story file content to save dev agent lookup time [cite: 149]
+      * Include story file content to save dev agent lookup time
       * Dev follows tasks/subtasks, marking completion
       * Dev maintains File List of all changes
       * Dev marks story as "Review" when complete with all tests passing
@@ -531,23 +529,23 @@ that can handle [specific requirements]."
     **Step 3 - Senior QA Review**:
 
       * **NEW CLEAN CHAT** → `@qa` → execute review-story task
-      * [cite\_start]QA performs senior developer code review [cite: 150]
-      * [cite\_start]QA can refactor and improve code directly [cite: 150]
-      * [cite\_start]QA appends results to story's QA Results section [cite: 150]
-      * [cite\_start]If approved: Status → "Done" [cite: 150]
-      * [cite\_start]If changes needed: Status stays "Review" with unchecked items for dev [cite: 150]
+      * [QA performs senior developer code review]
+      * [QA can refactor and improve code directly]
+      * [QA appends results to story's QA Results section]
+      * [If approved: Status → "Done"]
+      * [If changes needed: Status stays "Review" with unchecked items for dev]
 
     **Step 4 - Repeat**: Continue SM → Dev → QA cycle until all epic stories complete
 
-[cite\_start]**Important**: Only 1 story in progress at a time, worked sequentially until all epic stories complete. [cite: 151]
+**Important**: Only 1 story in progress at a time, worked sequentially until all epic stories complete.
 
 ### Status Tracking Workflow
 
 Stories progress through defined statuses:
 
-  * [cite\_start]**Draft** → **Approved** → **InProgress** → **Done** [cite: 152]
+  * **Draft** → **Approved** → **InProgress** → **Done**
 
-[cite\_start]Each status change requires user verification and approval before proceeding. [cite: 152]
+Each status change requires user verification and approval before proceeding.
 
 ### Workflow Types
 
@@ -561,30 +559,30 @@ Stories progress through defined statuses:
 
 #### Brownfield Enhancement (Existing Projects)
 
-[cite\_start]**Key Concept**: Brownfield development requires comprehensive documentation of your existing project for AI agents to understand context, patterns, and constraints. [cite: 153]
+**Key Concept**: Brownfield development requires comprehensive documentation of your existing project for AI agents to understand context, patterns, and constraints.
 
 **Complete Brownfield Workflow Options**:
 
 **Option 1: PRD-First (Recommended for Large Codebases/Monorepos)**:
 
-1.  [cite\_start]**Upload project to Gemini Web** (GitHub URL, files, or zip) [cite: 154]
-2.  [cite\_start]**Create PRD first**: `@pm` → `*create-doc brownfield-prd` [cite: 154]
-3.  [cite\_start]**Focused documentation**: `@analyst` → `*document-project` [cite: 154]
-      * [cite\_start]Analyst asks for focus if no PRD provided [cite: 154]
-      * [cite\_start]Choose "single document" format for Web UI [cite: 154]
-      * [cite\_start]Uses PRD to document ONLY relevant areas [cite: 154]
-      * [cite\_start]Creates one comprehensive markdown file [cite: 154]
-      * [cite\_start]Avoids bloating docs with unused code [cite: 154]
+1.  **Upload project to Gemini Web** (GitHub URL, files, or zip)
+2.  **Create PRD first**: `@pm` → `*create-doc brownfield-prd`
+3.  **Focused documentation**: `@analyst` → `*document-project`
+      * Analyst asks for focus if no PRD provided
+      * Choose "single document" format for Web UI
+      * Uses PRD to document ONLY relevant areas
+      * Creates one comprehensive markdown file
+      * Avoids bloating docs with unused code
 
 **Option 2: Document-First (Good for Smaller Projects)**:
 
-1.  [cite\_start]**Upload project to Gemini Web** [cite: 154]
+1.  **Upload project to Gemini Web**
 
-2.  [cite\_start]**Document everything**: `@analyst` → `*document-project` [cite: 154]
+2.  **Document everything**: `@analyst` → `*document-project`
 
-3.  [cite\_start]**Then create PRD**: `@pm` → `*create-doc brownfield-prd` [cite: 154]
+3.  **Then create PRD**: `@pm` → `*create-doc brownfield-prd`
 
-      * [cite\_start]More thorough but can create excessive documentation [cite: 154]
+      * More thorough but can create excessive documentation
 
 4.  **Requirements Gathering**:
 
@@ -604,14 +602,14 @@ Stories progress through defined statuses:
 
 **Templates**:
 
-  * [cite\_start]`brownfield-prd-tmpl.md`: Comprehensive enhancement planning with existing system analysis [cite: 155]
-  * [cite\_start]`brownfield-architecture-tmpl.md`: Integration-focused architecture for existing systems [cite: 155]
+  * `brownfield-prd-tmpl.md`: Comprehensive enhancement planning with existing system analysis
+  * `brownfield-architecture-tmpl.md`: Integration-focused architecture for existing systems
 
 **Tasks**:
 
-  * [cite\_start]`document-project`: Generates comprehensive documentation from existing codebase [cite: 155]
-  * [cite\_start]`brownfield-create-epic`: Creates single epic for focused enhancements (when full PRD is overkill) [cite: 155]
-  * [cite\_start]`brownfield-create-story`: Creates individual story for small, isolated changes [cite: 155]
+  * `document-project`: Generates comprehensive documentation from existing codebase
+  * `brownfield-create-epic`: Creates single epic for focused enhancements (when full PRD is overkill)
+  * `brownfield-create-story`: Creates individual story for small, isolated changes
 
 **When to Use Each Approach**:
 
@@ -631,10 +629,10 @@ Stories progress through defined statuses:
 
 **Critical Success Factors**:
 
-1.  [cite\_start]**Documentation First**: Always run `document-project` if docs are outdated/missing [cite: 156]
-2.  [cite\_start]**Context Matters**: Provide agents access to relevant code sections [cite: 156]
-3.  [cite\_start]**Integration Focus**: Emphasize compatibility and non-breaking changes [cite: 156]
-4.  [cite\_start]**Incremental Approach**: Plan for gradual rollout and testing [cite: 156]
+1.  **Documentation First**: Always run `document-project` if docs are outdated/missing
+2.  **Context Matters**: Provide agents access to relevant code sections
+3.  **Integration Focus**: Emphasize compatibility and non-breaking changes
+4.  **Incremental Approach**: Plan for gradual rollout and testing
 
 **For detailed guide**: See `docs/working-in-the-brownfield.md`
 
@@ -655,10 +653,10 @@ Stories progress through defined statuses:
 
 **Recommended for Large Documents (PRD, Architecture):**
 
-1.  [cite\_start]**Use Web UI**: Create documents in web interface for cost efficiency [cite: 157]
-2.  [cite\_start]**Copy Final Output**: Save complete markdown to your project [cite: 157]
-3.  [cite\_start]**Standard Names**: Save as `docs/prd.md` and `docs/architecture.md` [cite: 157]
-4.  [cite\_start]**Switch to IDE**: Use IDE agents for development and smaller documents [cite: 157]
+1.  **Use Web UI**: Create documents in web interface for cost efficiency
+2.  **Copy Final Output**: Save complete markdown to your project
+3.  **Standard Names**: Save as `docs/prd.md` and `docs/architecture.md`
+4.  **Switch to IDE**: Use IDE agents for development and smaller documents
 
 ### Document Sharding
 
@@ -680,7 +678,7 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
   * `docs/prd/user-interface-design-goals.md`
   * `docs/prd/success-metrics.md`
 
-[cite\_start]Use the `shard-doc` task or `@kayvan/markdown-tree-parser` tool for automatic sharding. [cite: 158]
+Use the `shard-doc` task or `@kayvan/markdown-tree-parser` tool for automatic sharding.
 
 ## Usage Patterns and Best Practices
 
@@ -688,17 +686,17 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 **Web UI Best For**:
 
-  * [cite\_start]Initial planning and documentation phases [cite: 159]
-  * [cite\_start]Cost-effective large document creation [cite: 159]
-  * [cite\_start]Agent consultation and brainstorming [cite: 159]
-  * [cite\_start]Multi-agent workflows with orchestrator [cite: 159]
+  * Initial planning and documentation phases
+  * Cost-effective large document creation
+  * Agent consultation and brainstorming
+  * Multi-agent workflows with orchestrator
 
 **IDE Best For**:
 
-  * [cite\_start]Active development and implementation [cite: 159]
-  * [cite\_start]File operations and project integration [cite: 159]
-  * [cite\_start]Story management and development cycles [cite: 159]
-  * [cite\_start]Code review and debugging [cite: 159]
+  * Active development and implementation
+  * File operations and project integration
+  * Story management and development cycles
+  * Code review and debugging
 
 ### Quality Assurance
 
@@ -709,10 +707,10 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 ### Performance Optimization
 
-  * [cite\_start]Use specific agents vs. `bmad-master` for focused tasks [cite: 159]
-  * [cite\_start]Choose appropriate team size for project needs [cite: 159]
-  * [cite\_start]Leverage technical preferences for consistency [cite: 159]
-  * [cite\_start]Regular context management and cache clearing [cite: 159]
+  * Use specific agents vs. `bmad-master` for focused tasks
+  * Choose appropriate team size for project needs
+  * Leverage technical preferences for consistency
+  * Regular context management and cache clearing
 
 ## Success Tips
 
@@ -726,15 +724,15 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 ### Quick Contribution Guidelines
 
-[cite\_start]For full details, see `CONTRIBUTING.md`. [cite: 160] Key points:
+For full details, see `CONTRIBUTING.md`. Key points:
 
 **Fork Workflow**:
 
-1.  [cite\_start]Fork the repository [cite: 160]
-2.  [cite\_start]Create feature branches [cite: 160]
-3.  [cite\_start]Submit PRs to `next` branch (default) or `main` for critical fixes only [cite: 160]
-4.  [cite\_start]Keep PRs small: 200-400 lines ideal, 800 lines maximum [cite: 160]
-5.  [cite\_start]One feature/fix per PR [cite: 160]
+1.  Fork the repository
+2.  Create feature branches
+3.  Submit PRs to `next` branch (default) or `main` for critical fixes only
+4.  Keep PRs small: 200-400 lines ideal, 800 lines maximum
+5.  One feature/fix per PR
 
 **PR Requirements**:
 
@@ -745,23 +743,23 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 **Core Principles** (from GUIDING-PRINCIPLES.md):
 
-  * [cite\_start]**Dev Agents Must Be Lean**: Minimize dependencies, save context for code [cite: 161]
-  * [cite\_start]**Natural Language First**: Everything in markdown, no code in core [cite: 161]
-  * [cite\_start]**Core vs Expansion Packs**: Core for universal needs, packs for specialized domains [cite: 161]
-  * [cite\_start]**Design Philosophy**: "Dev agents code, planning agents plan" [cite: 161]
+  * **Dev Agents Must Be Lean**: Minimize dependencies, save context for code
+  * **Natural Language First**: Everything in markdown, no code in core
+  * **Core vs Expansion Packs**: Core for universal needs, packs for specialized domains
+  * **Design Philosophy**: "Dev agents code, planning agents plan"
 
 ## Expansion Packs
 
 ### What Are Expansion Packs?
 
-[cite\_start]Expansion packs extend BMAD-METHOD beyond traditional software development into ANY domain. [cite: 162] [cite\_start]They provide specialized agent teams, templates, and workflows while keeping the core framework lean and focused on development. [cite: 163]
+Expansion packs extend BMAD-METHOD beyond traditional software development into ANY domain. They provide specialized agent teams, templates, and workflows while keeping the core framework lean and focused on development.
 
 ### Why Use Expansion Packs?
 
-1.  [cite\_start]**Keep Core Lean**: Dev agents maintain maximum context for coding [cite: 164]
-2.  [cite\_start]**Domain Expertise**: Deep, specialized knowledge without bloating core [cite: 164]
-3.  [cite\_start]**Community Innovation**: Anyone can create and share packs [cite: 164]
-4.  [cite\_start]**Modular Design**: Install only what you need [cite: 164]
+1.  **Keep Core Lean**: Dev agents maintain maximum context for coding
+2.  **Domain Expertise**: Deep, specialized knowledge without bloating core
+3.  **Community Innovation**: Anyone can create and share packs
+4.  **Modular Design**: Install only what you need
 
 ### Available Expansion Packs
 
@@ -774,11 +772,11 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 **Non-Technical Packs**:
 
-  * [cite\_start]**Business Strategy**: Consultants, financial analysts, marketing strategists [cite: 165]
-  * [cite\_start]**Creative Writing**: Plot architects, character developers, world builders [cite: 165]
-  * [cite\_start]**Health & Wellness**: Fitness trainers, nutritionists, habit engineers [cite: 165]
-  * [cite\_start]**Education**: Curriculum designers, assessment specialists [cite: 165]
-  * [cite\_start]**Legal Support**: Contract analysts, compliance checkers [cite: 165]
+  * **Business Strategy**: Consultants, financial analysts, marketing strategists
+  * **Creative Writing**: Plot architects, character developers, world builders
+  * **Health & Wellness**: Fitness trainers, nutritionists, habit engineers
+  * **Education**: Curriculum designers, assessment specialists
+  * **Legal Support**: Contract analysts, compliance checkers
 
 **Specialty Packs**:
 
@@ -802,17 +800,17 @@ Templates with Level 2 headings (`##`) can be automatically sharded:
 
 Use the **expansion-creator** pack to build your own:
 
-1.  [cite\_start]**Define Domain**: What expertise are you capturing? [cite: 166]
-2.  [cite\_start]**Design Agents**: Create specialized roles with clear boundaries [cite: 166]
-3.  [cite\_start]**Build Resources**: Tasks, templates, checklists for your domain [cite: 166]
-4.  [cite\_start]**Test & Share**: Validate with real use cases, share with community [cite: 166]
+1.  **Define Domain**: What expertise are you capturing?
+2.  **Design Agents**: Create specialized roles with clear boundaries
+3.  **Build Resources**: Tasks, templates, checklists for your domain
+4.  **Test & Share**: Validate with real use cases, share with community
 
-[cite\_start]**Key Principle**: Expansion packs democratize expertise by making specialized knowledge accessible through AI agents. [cite: 167]
+**Key Principle**: Expansion packs democratize expertise by making specialized knowledge accessible through AI agents.
 
 ## Getting Help
 
-  * [cite\_start]**Commands**: Use `/help` in any environment to see available commands [cite: 167]
-  * [cite\_start]**Agent Switching**: Use `/switch agent-name` with orchestrator for role changes [cite: 167]
-  * [cite\_start]**Documentation**: Check `docs/` folder for project-specific context [cite: 167]
-  * [cite\_start]**Community**: Discord and GitHub resources available for support [cite: 167]
-  * [cite\_start]**Contributing**: See `CONTRIBUTING.md` for full guidelines [cite: 167]
+  * **Commands**: Use `/help` in any environment to see available commands
+  * **Agent Switching**: Use `/switch agent-name` with orchestrator for role changes
+  * **Documentation**: Check `docs/` folder for project-specific context
+  * **Community**: Discord and GitHub resources available for support
+  * **Contributing**: See `CONTRIBUTING.md` for full guidelines

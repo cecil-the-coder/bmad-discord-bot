@@ -297,7 +297,9 @@ CONVERSATION HISTORY:
 
 USER QUESTION: %s
 
-IMPORTANT: You are continuing a conversation about BMAD-METHOD. Answer ONLY based on the information provided in the BMAD knowledge base above. If the follow-up question refers to something mentioned earlier in the conversation, use the conversation history to understand the context. However, your answer must still be grounded in the BMAD knowledge base. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.`, bmadKnowledge, conversationHistory, query)
+IMPORTANT: You are continuing a conversation about BMAD-METHOD. Answer ONLY based on the information provided in the BMAD knowledge base above. If the follow-up question refers to something mentioned earlier in the conversation, use the conversation history to understand the context. However, your answer must still be grounded in the BMAD knowledge base. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.
+
+After your main answer, provide a concise, 8-word or less topic summary of this conversation for Discord thread titles, prefixed with "[SUMMARY]:". This summary should focus on the BMAD topic or concept discussed. Example: "[SUMMARY]: BMAD Roles and Responsibilities".`, bmadKnowledge, conversationHistory, query)
 	} else {
 		// Fallback to regular BMAD query if no history
 		prompt = g.buildBMADPrompt(query)
