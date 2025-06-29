@@ -8,13 +8,16 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"bmad-knowledge-bot/internal/monitor"
 )
 
 // GeminiCLIService implements AIService interface using Google Gemini CLI
 type GeminiCLIService struct {
-	cliPath string
-	timeout time.Duration
-	logger  *slog.Logger
+	cliPath     string
+	timeout     time.Duration
+	logger      *slog.Logger
+	rateLimiter monitor.AIProviderRateLimiter
 }
 
 // NewGeminiCLIService creates a new Gemini CLI service instance
@@ -29,10 +32,16 @@ func NewGeminiCLIService(cliPath string, logger *slog.Logger) (*GeminiCLIService
 	}
 
 	return &GeminiCLIService{
-		cliPath: cliPath,
-		timeout: 30 * time.Second, // Default 30 second timeout
-		logger:  logger,
+		cliPath:     cliPath,
+		timeout:     30 * time.Second, // Default 30 second timeout
+		logger:      logger,
+		rateLimiter: nil, // Will be set via SetRateLimiter
 	}, nil
+}
+
+// SetRateLimiter sets the rate limiter for this service
+func (g *GeminiCLIService) SetRateLimiter(rateLimiter monitor.AIProviderRateLimiter) {
+	g.rateLimiter = rateLimiter
 }
 
 // QueryAI sends a query to the Gemini CLI and returns the response
@@ -41,7 +50,21 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	g.logger.Info("Sending query to Gemini CLI", "query_length", len(query))
+	// Check rate limit before proceeding
+	if err := g.checkRateLimit(); err != nil {
+		return "", err
+	}
+
+	g.logger.Info("Sending query to Gemini CLI",
+		"provider", g.GetProviderID(),
+		"query_length", len(query))
+
+	// Register the API call for rate limiting
+	if g.rateLimiter != nil {
+		if err := g.rateLimiter.RegisterCall(g.GetProviderID()); err != nil {
+			g.logger.Warn("Failed to register API call for rate limiting", "error", err)
+		}
+	}
 
 	// Create context with timeout for command execution
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
@@ -53,8 +76,9 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Error("Gemini CLI execution failed", 
-			"error", err, 
+		g.logger.Error("Gemini CLI execution failed",
+			"provider", g.GetProviderID(),
+			"error", err,
 			"output", string(output))
 		
 		// Check if it's a timeout error
@@ -67,11 +91,12 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 
 	responseText := strings.TrimSpace(string(output))
 	if responseText == "" {
-		g.logger.Warn("Gemini CLI returned empty response")
+		g.logger.Warn("Gemini CLI returned empty response", "provider", g.GetProviderID())
 		return "I received an empty response from the AI service.", nil
 	}
 
-	g.logger.Info("Gemini CLI response received", 
+	g.logger.Info("Gemini CLI response received",
+		"provider", g.GetProviderID(),
 		"response_length", len(responseText))
 
 	return responseText, nil
@@ -83,7 +108,21 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	g.logger.Info("Creating query summary", "query_length", len(query))
+	// Check rate limit before proceeding
+	if err := g.checkRateLimit(); err != nil {
+		return "", err
+	}
+
+	g.logger.Info("Creating query summary",
+		"provider", g.GetProviderID(),
+		"query_length", len(query))
+
+	// Register the API call for rate limiting
+	if g.rateLimiter != nil {
+		if err := g.rateLimiter.RegisterCall(g.GetProviderID()); err != nil {
+			g.logger.Warn("Failed to register API call for rate limiting", "error", err)
+		}
+	}
 
 	// Create a specialized prompt for summarization
 	prompt := fmt.Sprintf("Create a concise summary of this question in 8 words or less, suitable for a Discord thread title. Focus on the main topic or question being asked. Do not include quotes or formatting. Question: %s", query)
@@ -99,6 +138,7 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		g.logger.Error("Gemini CLI summarization failed",
+			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
 		
@@ -108,13 +148,13 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 		}
 		
 		// Fallback to simple truncation if AI summarization fails
-		g.logger.Warn("AI summarization failed, using fallback", "error", err)
-		return g.fallbackSummarize(query), nil
+		g.logger.Warn("AI summarization failed, using fallback", "provider", g.GetProviderID(), "error", err)
+	return g.fallbackSummarize(query), nil
 	}
 
 	summary := strings.TrimSpace(string(output))
 	if summary == "" {
-		g.logger.Warn("Gemini CLI returned empty summary, using fallback")
+		g.logger.Warn("Gemini CLI returned empty summary, using fallback", "provider", g.GetProviderID())
 		return g.fallbackSummarize(query), nil
 	}
 
@@ -124,6 +164,7 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 	}
 
 	g.logger.Info("Query summary created",
+		"provider", g.GetProviderID(),
 		"summary_length", len(summary),
 		"summary", summary)
 
@@ -166,9 +207,22 @@ func (g *GeminiCLIService) QueryWithContext(query string, conversationHistory st
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
+	// Check rate limit before proceeding
+	if err := g.checkRateLimit(); err != nil {
+		return "", err
+	}
+
 	g.logger.Info("Sending contextual query to Gemini CLI",
+		"provider", g.GetProviderID(),
 		"query_length", len(query),
 		"history_length", len(conversationHistory))
+
+	// Register the API call for rate limiting
+	if g.rateLimiter != nil {
+		if err := g.rateLimiter.RegisterCall(g.GetProviderID()); err != nil {
+			g.logger.Warn("Failed to register API call for rate limiting", "error", err)
+		}
+	}
 
 	// Create a contextual prompt that includes conversation history
 	var prompt string
@@ -196,6 +250,7 @@ Please respond to this follow-up question in the context of the previous convers
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		g.logger.Error("Gemini CLI contextual execution failed",
+			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
 		
@@ -209,11 +264,12 @@ Please respond to this follow-up question in the context of the previous convers
 
 	responseText := strings.TrimSpace(string(output))
 	if responseText == "" {
-		g.logger.Warn("Gemini CLI returned empty contextual response")
+		g.logger.Warn("Gemini CLI returned empty contextual response", "provider", g.GetProviderID())
 		return "I received an empty response from the AI service.", nil
 	}
 
 	g.logger.Info("Gemini CLI contextual response received",
+		"provider", g.GetProviderID(),
 		"response_length", len(responseText))
 
 	return responseText, nil
@@ -225,7 +281,21 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 		return "", nil
 	}
 
-	g.logger.Info("Summarizing conversation", "message_count", len(messages))
+	// Check rate limit before proceeding
+	if err := g.checkRateLimit(); err != nil {
+		return "", err
+	}
+
+	g.logger.Info("Summarizing conversation",
+		"provider", g.GetProviderID(),
+		"message_count", len(messages))
+
+	// Register the API call for rate limiting
+	if g.rateLimiter != nil {
+		if err := g.rateLimiter.RegisterCall(g.GetProviderID()); err != nil {
+			g.logger.Warn("Failed to register API call for rate limiting", "error", err)
+		}
+	}
 
 	// Join messages into a single conversation text
 	conversationText := strings.Join(messages, "\n")
@@ -244,6 +314,7 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		g.logger.Error("Gemini CLI conversation summarization failed",
+			"provider", g.GetProviderID(),
 			"error", err,
 			"output", string(output))
 		
@@ -253,17 +324,18 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 		}
 		
 		// Fallback to truncated conversation if AI summarization fails
-		g.logger.Warn("AI conversation summarization failed, using fallback", "error", err)
+		g.logger.Warn("AI conversation summarization failed, using fallback", "provider", g.GetProviderID(), "error", err)
 		return g.fallbackConversationSummary(messages), nil
 	}
 
 	summary := strings.TrimSpace(string(output))
 	if summary == "" {
-		g.logger.Warn("Gemini CLI returned empty conversation summary, using fallback")
+		g.logger.Warn("Gemini CLI returned empty conversation summary, using fallback", "provider", g.GetProviderID())
 		return g.fallbackConversationSummary(messages), nil
 	}
 
 	g.logger.Info("Conversation summary created",
+		"provider", g.GetProviderID(),
 		"summary_length", len(summary))
 
 	return summary, nil
@@ -292,6 +364,43 @@ func (g *GeminiCLIService) fallbackConversationSummary(messages []string) string
 	}
 	
 	return summary
+}
+
+// GetProviderID returns the unique identifier for this AI provider
+func (g *GeminiCLIService) GetProviderID() string {
+	return "gemini"
+}
+
+// checkRateLimit validates that the provider is not rate limited before making a call
+func (g *GeminiCLIService) checkRateLimit() error {
+	if g.rateLimiter == nil {
+		// Rate limiting not configured - allow the call
+		return nil
+	}
+	
+	status := g.rateLimiter.GetProviderStatus(g.GetProviderID())
+	if status == "Throttled" {
+		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
+		g.logger.Warn("Rate limit exceeded for provider",
+			"provider", g.GetProviderID(),
+			"status", status,
+			"usage", usage,
+			"limit", limit)
+		return fmt.Errorf("rate limit exceeded for provider %s: %d/%d requests",
+			g.GetProviderID(), usage, limit)
+	}
+	
+	// Log warning status but don't block the call
+	if status == "Warning" {
+		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
+		g.logger.Warn("Rate limit warning for provider",
+			"provider", g.GetProviderID(),
+			"status", status,
+			"usage", usage,
+			"limit", limit)
+	}
+	
+	return nil
 }
 
 // SetTimeout allows customizing the CLI execution timeout

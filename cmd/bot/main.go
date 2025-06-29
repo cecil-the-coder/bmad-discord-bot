@@ -6,13 +6,16 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"bmad-knowledge-bot/internal/bot"
+	"bmad-knowledge-bot/internal/monitor"
 	"bmad-knowledge-bot/internal/service"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func main() {
@@ -43,13 +46,36 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate rate limiting configuration
+	rateLimitConfig, err := loadRateLimitConfig()
+	if err != nil {
+		slog.Error("Failed to load rate limit configuration", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize rate limit manager with provider configurations
+	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{rateLimitConfig})
+	slog.Info("Rate limit manager initialized",
+		"provider", rateLimitConfig.ProviderID,
+		"limits", rateLimitConfig.Limits)
+
 	// Initialize AI service
-	aiService, err := service.NewGeminiCLIService(geminiCLIPath, logger)
+	geminiService, err := service.NewGeminiCLIService(geminiCLIPath, logger)
 	if err != nil {
 		slog.Error("Failed to initialize AI service", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("AI service initialized successfully", "cli_path", geminiCLIPath)
+
+	// Set rate limiter for AI service
+	geminiService.SetRateLimiter(rateLimitManager)
+
+	// Cast to interface for use throughout the application
+	var aiService service.AIService = geminiService
+	slog.Info("Rate limiter configured for AI service", "provider", aiService.GetProviderID())
+
+	slog.Info("AI service initialized successfully",
+		"cli_path", geminiCLIPath,
+		"provider", aiService.GetProviderID())
 
 	// Create bot handler with AI service
 	handler := bot.NewHandler(logger, aiService)
@@ -136,6 +162,86 @@ func validateToken(token string) error {
 	return nil
 }
 
+// loadRateLimitConfig loads rate limiting configuration from environment variables
+func loadRateLimitConfig() (monitor.ProviderConfig, error) {
+	config := monitor.ProviderConfig{
+		ProviderID: "gemini",
+		Limits:     make(map[string]int),
+		Thresholds: make(map[string]float64),
+	}
+
+	// Load rate limit per minute (default: 60)
+	perMinuteStr := os.Getenv("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE")
+	if perMinuteStr == "" {
+		perMinuteStr = "60" // Default value
+	}
+	perMinute, err := strconv.Atoi(perMinuteStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE: %s", perMinuteStr)
+	}
+	if perMinute <= 0 {
+		return config, fmt.Errorf("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE must be positive: %d", perMinute)
+	}
+	config.Limits["minute"] = perMinute
+
+	// Load rate limit per day (default: 1000)
+	perDayStr := os.Getenv("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY")
+	if perDayStr == "" {
+		perDayStr = "1000" // Default value
+	}
+	perDay, err := strconv.Atoi(perDayStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY: %s", perDayStr)
+	}
+	if perDay <= 0 {
+		return config, fmt.Errorf("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY must be positive: %d", perDay)
+	}
+	config.Limits["day"] = perDay
+
+	// Load warning threshold (default: 0.75)
+	warningThresholdStr := os.Getenv("AI_PROVIDER_GEMINI_WARNING_THRESHOLD")
+	if warningThresholdStr == "" {
+		warningThresholdStr = "0.75" // Default value
+	}
+	warningThreshold, err := strconv.ParseFloat(warningThresholdStr, 64)
+	if err != nil {
+		return config, fmt.Errorf("invalid AI_PROVIDER_GEMINI_WARNING_THRESHOLD: %s", warningThresholdStr)
+	}
+	if warningThreshold <= 0 || warningThreshold >= 1 {
+		return config, fmt.Errorf("AI_PROVIDER_GEMINI_WARNING_THRESHOLD must be between 0 and 1: %f", warningThreshold)
+	}
+	config.Thresholds["warning"] = warningThreshold
+
+	// Load throttled threshold (default: 1.0)
+	throttledThresholdStr := os.Getenv("AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD")
+	if throttledThresholdStr == "" {
+		throttledThresholdStr = "1.0" // Default value
+	}
+	throttledThreshold, err := strconv.ParseFloat(throttledThresholdStr, 64)
+	if err != nil {
+		return config, fmt.Errorf("invalid AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD: %s", throttledThresholdStr)
+	}
+	if throttledThreshold <= 0 || throttledThreshold > 1 {
+		return config, fmt.Errorf("AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD must be between 0 and 1: %f", throttledThreshold)
+	}
+	config.Thresholds["throttled"] = throttledThreshold
+
+	// Validate that warning threshold is less than throttled threshold
+	if config.Thresholds["warning"] >= config.Thresholds["throttled"] {
+		return config, fmt.Errorf("warning threshold (%f) must be less than throttled threshold (%f)",
+			config.Thresholds["warning"], config.Thresholds["throttled"])
+	}
+
+	slog.Info("Rate limit configuration loaded",
+		"provider", config.ProviderID,
+		"minute_limit", config.Limits["minute"],
+		"day_limit", config.Limits["day"],
+		"warning_threshold", config.Thresholds["warning"],
+		"throttled_threshold", config.Thresholds["throttled"])
+
+	return config, nil
+}
+
 // validateGeminiCLIPath validates the Gemini CLI path and accessibility
 func validateGeminiCLIPath(cliPath string) error {
 	if cliPath == "" {
@@ -158,7 +264,7 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 		slog.Error("Error setting bot status", "error", err)
 		return
 	}
-	
+
 	slog.Info("Bot connected successfully",
 		"username", event.User.Username,
 		"discriminator", event.User.Discriminator,

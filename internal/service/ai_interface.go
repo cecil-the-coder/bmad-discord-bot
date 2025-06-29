@@ -18,4 +18,8 @@ type AIService interface {
 	// SummarizeConversation creates a summary of conversation history for context preservation
 	// Returns a summarized version that fits within reasonable token limits
 	SummarizeConversation(messages []string) (string, error)
+	
+	// GetProviderID returns the unique identifier for this AI provider
+	// Used for provider-specific rate limiting and monitoring
+	GetProviderID() string
 }
