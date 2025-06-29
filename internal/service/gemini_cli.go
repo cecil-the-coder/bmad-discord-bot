@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp" // Added for regex matching on error messages
 	"strings"
 	"sync"
 	"time"
@@ -103,8 +104,23 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	// Check rate limit before proceeding
+	// Check rate limit and daily quota before proceeding
 	if err := g.checkRateLimit(); err != nil {
+		// If the error indicates quota exhaustion, return a specific user-friendly message
+		if strings.Contains(err.Error(), "daily quota exhausted") {
+			providerState, exists := g.rateLimiter.GetProviderState(g.GetProviderID()) // Assuming this will return the state
+			if exists && !providerState.DailyQuotaResetTime.IsZero() {
+				g.logger.Info("Request blocked due to daily quota exhaustion",
+					"provider", g.GetProviderID(),
+					"query_length", len(query),
+					"reset_time", providerState.DailyQuotaResetTime)
+				return fmt.Sprintf("I've reached my daily quota for AI processing. Service will be restored tomorrow at %s UTC.", providerState.DailyQuotaResetTime.Format("15:04")), nil
+			}
+			g.logger.Info("Request blocked due to daily quota exhaustion",
+				"provider", g.GetProviderID(),
+				"query_length", len(query))
+			return "I've reached my daily quota for AI processing. Service will be restored tomorrow at midnight UTC.", nil
+		}
 		return "", err
 	}
 
@@ -132,10 +148,29 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		errMsg := string(output)
 		g.logger.Error("Gemini CLI execution failed",
 			"provider", g.GetProviderID(),
 			"error", err,
-			"output", string(output))
+			"output", errMsg)
+
+		// AC 2.2.1: Daily Quota Detection
+		dailyQuotaPattern := "Quota exceeded for quota metric '.*[Rr]equests.*' and limit '.*per day.*'"
+		if strings.Contains(errMsg, "429 Too Many Requests") && regexp.MustCompile(dailyQuotaPattern).MatchString(errMsg) {
+			// Calculate next UTC midnight for reset time
+			now := time.Now().UTC()
+			resetTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+
+			// AC 2.2.2: Quota State Management & AC 2.2.4: Administrative Notifications
+			if g.rateLimiter != nil {
+				g.rateLimiter.SetQuotaExhausted(g.GetProviderID(), resetTime)
+				g.logger.Error("Daily quota exhausted for Gemini API",
+					"provider", g.GetProviderID(),
+					"reset_time", resetTime.Format(time.RFC3339),
+					"service_impact", "All Gemini operations blocked until reset time.")
+			}
+			return "", fmt.Errorf("daily quota exhausted for Gemini API. Service will be restored at %s UTC", resetTime.Format("15:04"))
+		}
 
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
@@ -164,8 +199,23 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	// Check rate limit before proceeding
+	// Check rate limit and daily quota before proceeding
 	if err := g.checkRateLimit(); err != nil {
+		// If the error indicates quota exhaustion, return a specific user-friendly message
+		if strings.Contains(err.Error(), "daily quota exhausted") {
+			providerState, exists := g.rateLimiter.GetProviderState(g.GetProviderID())
+			if exists && !providerState.DailyQuotaResetTime.IsZero() {
+				g.logger.Info("Summarization request blocked due to daily quota exhaustion",
+					"provider", g.GetProviderID(),
+					"query_length", len(query),
+					"reset_time", providerState.DailyQuotaResetTime)
+				return fmt.Sprintf("AI summarization is temporarily unavailable. Service will be restored tomorrow at %s UTC.", providerState.DailyQuotaResetTime.Format("15:04")), nil
+			}
+			g.logger.Info("Summarization request blocked due to daily quota exhaustion",
+				"provider", g.GetProviderID(),
+				"query_length", len(query))
+			return "AI summarization is temporarily unavailable. Service will be restored tomorrow at midnight UTC.", nil
+		}
 		return "", err
 	}
 
@@ -193,10 +243,29 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		errMsg := string(output)
 		g.logger.Error("Gemini CLI summarization failed",
 			"provider", g.GetProviderID(),
 			"error", err,
-			"output", string(output))
+			"output", errMsg)
+
+		// AC 2.2.1: Daily Quota Detection
+		dailyQuotaPattern := "Quota exceeded for quota metric '.*[Rr]equests.*' and limit '.*per day.*'"
+		if strings.Contains(errMsg, "429 Too Many Requests") && regexp.MustCompile(dailyQuotaPattern).MatchString(errMsg) {
+			// Calculate next UTC midnight for reset time
+			now := time.Now().UTC()
+			resetTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+
+			// AC 2.2.2: Quota State Management & AC 2.2.4: Administrative Notifications
+			if g.rateLimiter != nil {
+				g.rateLimiter.SetQuotaExhausted(g.GetProviderID(), resetTime)
+				g.logger.Error("Daily quota exhausted for Gemini API during summarization",
+					"provider", g.GetProviderID(),
+					"reset_time", resetTime.Format(time.RFC3339),
+					"service_impact", "AI summarization blocked until reset time.")
+			}
+			return fmt.Sprintf("AI summarization is temporarily unavailable. Service will be restored tomorrow at %s UTC.", resetTime.Format("15:04")), nil
+		}
 
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
@@ -263,8 +332,25 @@ func (g *GeminiCLIService) QueryWithContext(query string, conversationHistory st
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	// Check rate limit before proceeding
+	// Check rate limit and daily quota before proceeding
 	if err := g.checkRateLimit(); err != nil {
+		// If the error indicates quota exhaustion, return a specific user-friendly message
+		if strings.Contains(err.Error(), "daily quota exhausted") {
+			providerState, exists := g.rateLimiter.GetProviderState(g.GetProviderID())
+			if exists && !providerState.DailyQuotaResetTime.IsZero() {
+				g.logger.Info("Contextual query blocked due to daily quota exhaustion",
+					"provider", g.GetProviderID(),
+					"query_length", len(query),
+					"history_length", len(conversationHistory),
+					"reset_time", providerState.DailyQuotaResetTime)
+				return fmt.Sprintf("I've reached my daily quota for AI processing. Service will be restored tomorrow at %s UTC.", providerState.DailyQuotaResetTime.Format("15:04")), nil
+			}
+			g.logger.Info("Contextual query blocked due to daily quota exhaustion",
+				"provider", g.GetProviderID(),
+				"query_length", len(query),
+				"history_length", len(conversationHistory))
+			return "I've reached my daily quota for AI processing. Service will be restored tomorrow at midnight UTC.", nil
+		}
 		return "", err
 	}
 
@@ -315,10 +401,29 @@ After your main answer, provide a concise, 8-word or less topic summary of this 
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		errMsg := string(output)
 		g.logger.Error("Gemini CLI contextual execution failed",
 			"provider", g.GetProviderID(),
 			"error", err,
-			"output", string(output))
+			"output", errMsg)
+
+		// AC 2.2.1: Daily Quota Detection
+		dailyQuotaPattern := "Quota exceeded for quota metric '.*[Rr]equests.*' and limit '.*per day.*'"
+		if strings.Contains(errMsg, "429 Too Many Requests") && regexp.MustCompile(dailyQuotaPattern).MatchString(errMsg) {
+			// Calculate next UTC midnight for reset time
+			now := time.Now().UTC()
+			resetTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+
+			// AC 2.2.2: Quota State Management & AC 2.2.4: Administrative Notifications
+			if g.rateLimiter != nil {
+				g.rateLimiter.SetQuotaExhausted(g.GetProviderID(), resetTime)
+				g.logger.Error("Daily quota exhausted for Gemini API during contextual query",
+					"provider", g.GetProviderID(),
+					"reset_time", resetTime.Format(time.RFC3339),
+					"service_impact", "All Gemini operations blocked until reset time.")
+			}
+			return "", fmt.Errorf("daily quota exhausted for Gemini API. Service will be restored at %s UTC", resetTime.Format("15:04"))
+		}
 
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
@@ -347,8 +452,23 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 		return "", nil
 	}
 
-	// Check rate limit before proceeding
+	// Check rate limit and daily quota before proceeding
 	if err := g.checkRateLimit(); err != nil {
+		// If the error indicates quota exhaustion, return a specific user-friendly message
+		if strings.Contains(err.Error(), "daily quota exhausted") {
+			providerState, exists := g.rateLimiter.GetProviderState(g.GetProviderID())
+			if exists && !providerState.DailyQuotaResetTime.IsZero() {
+				g.logger.Info("Conversation summarization blocked due to daily quota exhaustion",
+					"provider", g.GetProviderID(),
+					"message_count", len(messages),
+					"reset_time", providerState.DailyQuotaResetTime)
+				return fmt.Sprintf("AI conversation summarization is temporarily unavailable. Service will be restored tomorrow at %s UTC.", providerState.DailyQuotaResetTime.Format("15:04")), nil
+			}
+			g.logger.Info("Conversation summarization blocked due to daily quota exhaustion",
+				"provider", g.GetProviderID(),
+				"message_count", len(messages))
+			return "AI conversation summarization is temporarily unavailable. Service will be restored tomorrow at midnight UTC.", nil
+		}
 		return "", err
 	}
 
@@ -379,10 +499,29 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		errMsg := string(output)
 		g.logger.Error("Gemini CLI conversation summarization failed",
 			"provider", g.GetProviderID(),
 			"error", err,
-			"output", string(output))
+			"output", errMsg)
+
+		// AC 2.2.1: Daily Quota Detection
+		dailyQuotaPattern := "Quota exceeded for quota metric '.*[Rr]equests.*' and limit '.*per day.*'"
+		if strings.Contains(errMsg, "429 Too Many Requests") && regexp.MustCompile(dailyQuotaPattern).MatchString(errMsg) {
+			// Calculate next UTC midnight for reset time
+			now := time.Now().UTC()
+			resetTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+
+			// AC 2.2.2: Quota State Management & AC 2.2.4: Administrative Notifications
+			if g.rateLimiter != nil {
+				g.rateLimiter.SetQuotaExhausted(g.GetProviderID(), resetTime)
+				g.logger.Error("Daily quota exhausted for Gemini API during conversation summarization",
+					"provider", g.GetProviderID(),
+					"reset_time", resetTime.Format(time.RFC3339),
+					"service_impact", "AI conversation summarization blocked until reset time.")
+			}
+			return fmt.Sprintf("AI conversation summarization is temporarily unavailable. Service will be restored tomorrow at %s UTC.", resetTime.Format("15:04")), nil
+		}
 
 		// Check if it's a timeout error
 		if ctx.Err() == context.DeadlineExceeded {
@@ -437,30 +576,55 @@ func (g *GeminiCLIService) GetProviderID() string {
 	return "gemini"
 }
 
-// checkRateLimit validates that the provider is not rate limited before making a call
+// checkRateLimit validates that the provider is not rate limited or quota exhausted before making a call
 func (g *GeminiCLIService) checkRateLimit() error {
 	if g.rateLimiter == nil {
 		// Rate limiting not configured - allow the call
 		return nil
 	}
 
-	status := g.rateLimiter.GetProviderStatus(g.GetProviderID())
+	providerID := g.GetProviderID()
+	status := g.rateLimiter.GetProviderStatus(providerID)
+	providerState, exists := g.rateLimiter.GetProviderState(providerID)
+
+	// AC 2.2.5: Graceful Service Restoration
+	// If the quota was exhausted but the reset time has passed, clear the flag
+	if exists && providerState.DailyQuotaExhausted && time.Now().After(providerState.DailyQuotaResetTime) {
+		g.rateLimiter.ClearQuotaExhaustion(providerID)
+		status = g.rateLimiter.GetProviderStatus(providerID) // Re-evaluate status after clearing
+		g.logger.Info("Daily quota exhaustion cleared and service restored for Gemini API",
+			"provider", providerID,
+			"old_reset_time", providerState.DailyQuotaResetTime)
+	}
+
+	if status == "Quota Exhausted" {
+		resetTime := "midnight UTC"
+		if exists && !providerState.DailyQuotaResetTime.IsZero() {
+			resetTime = providerState.DailyQuotaResetTime.Format("15:04 UTC")
+		}
+		g.logger.Warn("Daily quota exhausted for provider, blocking call",
+			"provider", providerID,
+			"reset_time", resetTime)
+		return fmt.Errorf("daily quota exhausted for provider %s. Service will be restored tomorrow at %s.",
+			providerID, resetTime)
+	}
+
 	if status == "Throttled" {
-		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
+		usage, limit := g.rateLimiter.GetProviderUsage(providerID)
 		g.logger.Warn("Rate limit exceeded for provider",
-			"provider", g.GetProviderID(),
+			"provider", providerID,
 			"status", status,
 			"usage", usage,
 			"limit", limit)
 		return fmt.Errorf("rate limit exceeded for provider %s: %d/%d requests",
-			g.GetProviderID(), usage, limit)
+			providerID, usage, limit)
 	}
 
 	// Log warning status but don't block the call
 	if status == "Warning" {
-		usage, limit := g.rateLimiter.GetProviderUsage(g.GetProviderID())
+		usage, limit := g.rateLimiter.GetProviderUsage(providerID)
 		g.logger.Warn("Rate limit warning for provider",
-			"provider", g.GetProviderID(),
+			"provider", providerID,
 			"status", status,
 			"usage", usage,
 			"limit", limit)

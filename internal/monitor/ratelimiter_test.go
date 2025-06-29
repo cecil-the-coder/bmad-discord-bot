@@ -596,3 +596,225 @@ func TestRateLimitManager_CallbackPanicRecovery(t *testing.T) {
 		t.Errorf("Expected normal callback to be called once, got %d", normalCallbackCount)
 	}
 }
+
+// ========== NEW TESTS FOR STORY 2.2 DAILY QUOTA FEATURES ==========
+
+func TestRateLimitManager_SetQuotaExhausted(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	config := ProviderConfig{
+		ProviderID: "test",
+		Limits: map[string]int{
+			"minute": 5,
+		},
+		Thresholds: map[string]float64{
+			"warning":   0.6,
+			"throttled": 1.0,
+		},
+	}
+
+	manager := NewRateLimitManager(logger, []ProviderConfig{config})
+
+	// Test setting quota exhausted
+	resetTime := time.Now().Add(24 * time.Hour)
+	manager.SetQuotaExhausted("test", resetTime)
+
+	// Verify status is now "Quota Exhausted"
+	status := manager.GetProviderStatus("test")
+	if status != "Quota Exhausted" {
+		t.Errorf("Expected status to be 'Quota Exhausted', got %s", status)
+	}
+
+	// Verify state is set correctly
+	state, exists := manager.GetProviderState("test")
+	if !exists {
+		t.Fatal("Provider state not found")
+	}
+
+	if !state.DailyQuotaExhausted {
+		t.Error("Expected DailyQuotaExhausted to be true")
+	}
+
+	if !state.DailyQuotaResetTime.Equal(resetTime) {
+		t.Errorf("Expected reset time %v, got %v", resetTime, state.DailyQuotaResetTime)
+	}
+}
+
+func TestRateLimitManager_ClearQuotaExhaustion(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	config := ProviderConfig{
+		ProviderID: "test",
+		Limits: map[string]int{
+			"minute": 5,
+		},
+		Thresholds: map[string]float64{
+			"warning":   0.6,
+			"throttled": 1.0,
+		},
+	}
+
+	manager := NewRateLimitManager(logger, []ProviderConfig{config})
+
+	// First set quota exhausted
+	resetTime := time.Now().Add(24 * time.Hour)
+	manager.SetQuotaExhausted("test", resetTime)
+
+	// Verify it's set
+	status := manager.GetProviderStatus("test")
+	if status != "Quota Exhausted" {
+		t.Errorf("Expected status to be 'Quota Exhausted' after setting, got %s", status)
+	}
+
+	// Clear quota exhaustion
+	manager.ClearQuotaExhaustion("test")
+
+	// Verify status is now Normal
+	status = manager.GetProviderStatus("test")
+	if status != "Normal" {
+		t.Errorf("Expected status to be 'Normal' after clearing, got %s", status)
+	}
+
+	// Verify state is cleared
+	state, exists := manager.GetProviderState("test")
+	if !exists {
+		t.Fatal("Provider state not found")
+	}
+
+	if state.DailyQuotaExhausted {
+		t.Error("Expected DailyQuotaExhausted to be false after clearing")
+	}
+
+	if !state.DailyQuotaResetTime.IsZero() {
+		t.Error("Expected reset time to be zero after clearing")
+	}
+}
+
+func TestRateLimitManager_QuotaExhaustedStatusCallback(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	config := ProviderConfig{
+		ProviderID: "test",
+		Limits: map[string]int{
+			"minute": 5,
+		},
+		Thresholds: map[string]float64{
+			"warning":   0.6,
+			"throttled": 1.0,
+		},
+	}
+
+	manager := NewRateLimitManager(logger, []ProviderConfig{config})
+
+	// Track callback invocations
+	var callbackCount int
+	var statusChanges []string
+	callbackDone := make(chan bool, 10)
+
+	callback := func(providerID, status string) {
+		callbackCount++
+		statusChanges = append(statusChanges, status)
+		callbackDone <- true
+	}
+
+	manager.RegisterStatusCallback(callback)
+
+	// Set quota exhausted - should trigger callback
+	resetTime := time.Now().Add(24 * time.Hour)
+	manager.SetQuotaExhausted("test", resetTime)
+
+	// Wait for callback
+	select {
+	case <-callbackDone:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Callback not called for quota exhaustion")
+	}
+
+	// Clear quota exhaustion - should trigger another callback
+	manager.ClearQuotaExhaustion("test")
+
+	// Wait for callback
+	select {
+	case <-callbackDone:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Callback not called for quota restoration")
+	}
+
+	// Verify callbacks
+	if callbackCount != 2 {
+		t.Errorf("Expected 2 callback invocations, got %d", callbackCount)
+	}
+
+	expectedStatuses := []string{"Quota Exhausted", "Normal"}
+	if len(statusChanges) != len(expectedStatuses) {
+		t.Fatalf("Expected %d status changes, got %d", len(expectedStatuses), len(statusChanges))
+	}
+
+	for i, expected := range expectedStatuses {
+		if statusChanges[i] != expected {
+			t.Errorf("Expected status change %d to be %s, got %s", i, expected, statusChanges[i])
+		}
+	}
+}
+
+func TestRateLimitManager_AutoQuotaClearOnExpiry(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	config := ProviderConfig{
+		ProviderID: "test",
+		Limits: map[string]int{
+			"minute": 5,
+		},
+		Thresholds: map[string]float64{
+			"warning":   0.6,
+			"throttled": 1.0,
+		},
+	}
+
+	manager := NewRateLimitManager(logger, []ProviderConfig{config})
+
+	// Set quota exhausted with past reset time
+	pastResetTime := time.Now().Add(-1 * time.Hour)
+	manager.SetQuotaExhausted("test", pastResetTime)
+
+	// Get provider state to manually set an expired reset time
+	state, exists := manager.GetProviderState("test")
+	if !exists {
+		t.Fatal("Provider state not found")
+	}
+
+	state.Mutex.Lock()
+	state.DailyQuotaExhausted = true
+	state.DailyQuotaResetTime = pastResetTime
+	state.Mutex.Unlock()
+
+	// Now when we check status, it should auto-clear the expired quota
+	status := manager.GetProviderStatus("test")
+	if status != "Normal" {
+		t.Errorf("Expected status to be 'Normal' after auto-clearing expired quota, got %s", status)
+	}
+
+	// Verify the quota flag was cleared
+	state.Mutex.RLock()
+	exhausted := state.DailyQuotaExhausted
+	resetTime := state.DailyQuotaResetTime
+	state.Mutex.RUnlock()
+
+	if exhausted {
+		t.Error("Expected DailyQuotaExhausted to be false after auto-clearing")
+	}
+
+	if !resetTime.IsZero() {
+		t.Error("Expected reset time to be zero after auto-clearing")
+	}
+}
+
+func TestRateLimitManager_QuotaExhaustedUnknownProvider(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	manager := NewRateLimitManager(logger, []ProviderConfig{})
+
+	// Test setting quota exhausted for unknown provider - should not panic
+	resetTime := time.Now().Add(24 * time.Hour)
+	manager.SetQuotaExhausted("unknown", resetTime)
+
+	// Test clearing quota exhaustion for unknown provider - should not panic
+	manager.ClearQuotaExhaustion("unknown")
+
+	// Should complete without error
+}

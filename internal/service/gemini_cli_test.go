@@ -1,10 +1,12 @@
 package service
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"bmad-knowledge-bot/internal/monitor"
 
@@ -36,8 +38,21 @@ func (m *mockRateLimiter) CleanupOldCalls(providerID string) {
 }
 
 func (m *mockRateLimiter) GetProviderState(providerID string) (*monitor.ProviderRateLimitState, bool) {
-	// Return nil for testing
-	return nil, false
+	// Return a mock state for testing
+	state := &monitor.ProviderRateLimitState{
+		ProviderID:              providerID,
+		DailyQuotaExhausted:     false,
+		DailyQuotaResetTime:     time.Time{},
+	}
+	return state, true
+}
+
+func (m *mockRateLimiter) SetQuotaExhausted(providerID string, resetTime time.Time) {
+	// Mock implementation - no-op for basic tests
+}
+
+func (m *mockRateLimiter) ClearQuotaExhaustion(providerID string) {
+	// Mock implementation - no-op for basic tests
 }
 
 // setupTestServiceWithBMAD creates a test service with a temporary BMAD prompt file
@@ -350,4 +365,321 @@ fi
 	assert.NoError(t, err)
 	assert.Contains(t, response, "Based on BMAD knowledge")
 	assert.Contains(t, response, "[cite: 90]")
+}
+
+// ========== NEW TESTS FOR STORY 2.2 ==========
+
+// mockQuotaRateLimiter extends mockRateLimiter to support quota exhaustion testing
+type mockQuotaRateLimiter struct {
+	*mockRateLimiter
+	quotaExhausted bool
+	resetTime      time.Time
+}
+
+func (m *mockQuotaRateLimiter) GetProviderState(providerID string) (*monitor.ProviderRateLimitState, bool) {
+	state := &monitor.ProviderRateLimitState{
+		ProviderID:              providerID,
+		DailyQuotaExhausted:     m.quotaExhausted,
+		DailyQuotaResetTime:     m.resetTime,
+	}
+	return state, true
+}
+
+func (m *mockQuotaRateLimiter) SetQuotaExhausted(providerID string, resetTime time.Time) {
+	m.quotaExhausted = true
+	m.resetTime = resetTime
+}
+
+func (m *mockQuotaRateLimiter) ClearQuotaExhaustion(providerID string) {
+	m.quotaExhausted = false
+	m.resetTime = time.Time{}
+}
+
+func (m *mockQuotaRateLimiter) GetProviderStatus(providerID string) string {
+	if m.quotaExhausted {
+		return "Quota Exhausted"
+	}
+	return m.mockRateLimiter.GetProviderStatus(providerID)
+}
+
+// Test AC 2.2.1: Daily Quota Detection
+func TestGeminiCLIService_DailyQuotaDetection(t *testing.T) {
+	tmpDir := t.TempDir()
+	execPath := filepath.Join(tmpDir, "gemini-cli")
+
+	// Script that simulates 429 error with daily quota message
+	script := `#!/bin/sh
+echo "Error: 429 Too Many Requests - Quota exceeded for quota metric 'GeminiRequests' and limit '1000 per day'. Please try again later." >&2
+exit 1
+`
+	err := os.WriteFile(execPath, []byte(script), 0755)
+	require.NoError(t, err)
+
+	// Setup service
+	service, _ := setupTestServiceWithBMAD(t)
+	service.cliPath = execPath
+
+	// Setup mock rate limiter
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Normal"},
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Test QueryAI - should detect daily quota exhaustion
+	_, err = service.QueryAI("test query")
+
+	// Verify error indicates daily quota exhaustion
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "daily quota exhausted for Gemini API")
+	assert.Contains(t, err.Error(), "Service will be restored at")
+
+	// Verify quota exhausted flag was set
+	assert.True(t, mockRL.quotaExhausted)
+	assert.False(t, mockRL.resetTime.IsZero())
+}
+
+// Test AC 2.2.2: Quota State Management
+func TestGeminiCLIService_QuotaStateManagement(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Normal"},
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Simulate quota exhaustion
+	resetTime := time.Now().Add(24 * time.Hour)
+	mockRL.SetQuotaExhausted("gemini", resetTime)
+
+	// Test that calls are blocked when quota is exhausted
+	err := service.checkRateLimit()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "daily quota exhausted")
+
+	// Test automatic quota restoration after reset time
+	mockRL.resetTime = time.Now().Add(-1 * time.Hour) // Past reset time
+	err = service.checkRateLimit()
+	assert.NoError(t, err)
+	assert.False(t, mockRL.quotaExhausted) // Should be cleared
+}
+
+// Test AC 2.2.3: User-Facing Error Handling
+func TestGeminiCLIService_UserFacingErrorHandling(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Quota Exhausted"},
+		quotaExhausted:  true,
+		resetTime:       time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Test QueryAI returns user-friendly message
+	response, err := service.QueryAI("test query")
+	assert.NoError(t, err)
+	assert.Contains(t, response, "I've reached my daily quota for AI processing")
+	assert.Contains(t, response, "Service will be restored tomorrow at")
+
+	// Test SummarizeQuery returns user-friendly message
+	response, err = service.SummarizeQuery("test query")
+	assert.NoError(t, err)
+	assert.Contains(t, response, "AI summarization is temporarily unavailable")
+
+	// Test QueryWithContext returns user-friendly message
+	response, err = service.QueryWithContext("test", "history")
+	assert.NoError(t, err)
+	assert.Contains(t, response, "I've reached my daily quota for AI processing")
+
+	// Test SummarizeConversation returns user-friendly message
+	response, err = service.SummarizeConversation([]string{"msg1", "msg2"})
+	assert.NoError(t, err)
+	assert.Contains(t, response, "AI conversation summarization is temporarily unavailable")
+}
+
+// Test AC 2.2.5: Graceful Service Restoration
+func TestGeminiCLIService_GracefulServiceRestoration(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Normal"},
+		quotaExhausted:  true,
+		resetTime:       time.Now().Add(-1 * time.Hour), // Past reset time
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Call checkRateLimit - should detect expired quota and clear it
+	err := service.checkRateLimit()
+	assert.NoError(t, err)
+	assert.False(t, mockRL.quotaExhausted)
+	assert.True(t, mockRL.resetTime.IsZero())
+}
+
+// Test AC 2.2.6: Integration with Rate Limiting
+func TestGeminiCLIService_QuotaExhaustedStatus(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	testCases := []struct {
+		name          string
+		status        string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "Normal status",
+			status:      "Normal",
+			expectError: false,
+		},
+		{
+			name:        "Warning status",
+			status:      "Warning",
+			expectError: false,
+		},
+		{
+			name:          "Throttled status",
+			status:        "Throttled",
+			expectError:   true,
+			errorContains: "rate limit exceeded",
+		},
+		{
+			name:          "Quota Exhausted status",
+			status:        "Quota Exhausted",
+			expectError:   true,
+			errorContains: "daily quota exhausted",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockRL := &mockQuotaRateLimiter{
+				mockRateLimiter: &mockRateLimiter{
+					status: tc.status,
+					usage:  8,
+					limit:  10,
+				},
+			}
+			if tc.status == "Quota Exhausted" {
+				mockRL.quotaExhausted = true
+				mockRL.resetTime = time.Now().Add(1 * time.Hour)
+			}
+			service.SetRateLimiter(mockRL)
+
+			err := service.checkRateLimit()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Test daily quota pattern detection using integration approach
+func TestGeminiCLIService_QuotaPatternDetection(t *testing.T) {
+	testCases := []struct {
+		name          string
+		errorMessage  string
+		shouldDetect  bool
+	}{
+		{
+			name:         "Standard daily quota error",
+			errorMessage: "429 Too Many Requests - Quota exceeded for quota metric 'GeminiRequests' and limit '1000 per day'",
+			shouldDetect: true,
+		},
+		{
+			name:         "Alternative daily quota format",
+			errorMessage: "429 Too Many Requests - Quota exceeded for quota metric 'requests' and limit 'default per day'",
+			shouldDetect: true,
+		},
+		{
+			name:         "Per minute limit - should not detect",
+			errorMessage: "429 Too Many Requests - Quota exceeded for quota metric 'requests' and limit '60 per minute'",
+			shouldDetect: false,
+		},
+		{
+			name:         "Per hour limit - should not detect", 
+			errorMessage: "429 Too Many Requests - Quota exceeded for quota metric 'requests' and limit '1000 per hour'",
+			shouldDetect: false,
+		},
+		{
+			name:         "Regular rate limit - should not detect",
+			errorMessage: "Too many requests, please try again later",
+			shouldDetect: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			execPath := filepath.Join(tmpDir, "gemini-cli")
+
+			// Create a script that simulates the specific error
+			script := fmt.Sprintf(`#!/bin/sh
+echo "%s" >&2
+exit 1
+`, tc.errorMessage)
+			err := os.WriteFile(execPath, []byte(script), 0755)
+			require.NoError(t, err)
+
+			// Setup service
+			service, _ := setupTestServiceWithBMAD(t)
+			service.cliPath = execPath
+
+			// Setup mock rate limiter
+			mockRL := &mockQuotaRateLimiter{
+				mockRateLimiter: &mockRateLimiter{status: "Normal"},
+			}
+			service.SetRateLimiter(mockRL)
+
+			// Execute QueryAI and check if quota exhaustion was detected
+			_, err = service.QueryAI("test query")
+
+			if tc.shouldDetect {
+				// Should detect daily quota and set the flag
+				assert.True(t, mockRL.quotaExhausted, "Expected quota exhaustion to be detected for: %s", tc.errorMessage)
+			} else {
+				// Should not detect daily quota
+				assert.False(t, mockRL.quotaExhausted, "Expected quota exhaustion NOT to be detected for: %s", tc.errorMessage)
+			}
+		})
+	}
+}
+
+// Test quota reset time calculation through the actual logic
+func TestGeminiCLIService_QuotaResetTimeCalculation(t *testing.T) {
+	tmpDir := t.TempDir()
+	execPath := filepath.Join(tmpDir, "gemini-cli")
+
+	// Script that simulates daily quota error
+	script := `#!/bin/sh
+echo "429 Too Many Requests - Quota exceeded for quota metric 'GeminiRequests' and limit '1000 per day'" >&2
+exit 1
+`
+	err := os.WriteFile(execPath, []byte(script), 0755)
+	require.NoError(t, err)
+
+	// Setup service
+	service, _ := setupTestServiceWithBMAD(t)
+	service.cliPath = execPath
+
+	// Setup mock rate limiter
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Normal"},
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Execute QueryAI to trigger quota detection
+	_, err = service.QueryAI("test query")
+	
+	// Verify the reset time was calculated correctly (should be next day at midnight UTC)
+	assert.True(t, mockRL.quotaExhausted)
+	assert.False(t, mockRL.resetTime.IsZero())
+	
+	// The reset time should be after now and should be at midnight UTC
+	now := time.Now().UTC()
+	assert.True(t, mockRL.resetTime.After(now))
+	assert.Equal(t, 0, mockRL.resetTime.Hour())
+	assert.Equal(t, 0, mockRL.resetTime.Minute())
+	assert.Equal(t, 0, mockRL.resetTime.Second())
 }

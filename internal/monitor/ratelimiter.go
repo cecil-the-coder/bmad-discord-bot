@@ -10,11 +10,13 @@ import (
 
 // ProviderRateLimitState represents the rate limiting state for a specific AI provider
 type ProviderRateLimitState struct {
-	ProviderID  string                 // e.g., "gemini", "openai", "claude"
-	TimeWindows map[string][]time.Time // e.g., "minute" -> timestamps, "day" -> timestamps
-	Limits      map[string]int         // e.g., "minute" -> 60, "day" -> 1000
-	Thresholds  map[string]float64     // e.g., "warning" -> 0.75, "throttled" -> 1.0
-	Mutex       sync.RWMutex           // Read-write mutex for concurrent access
+	ProviderID           string                 // e.g., "gemini", "openai", "claude"
+	TimeWindows          map[string][]time.Time // e.g., "minute" -> timestamps, "day" -> timestamps
+	Limits               map[string]int         // e.g., "minute" -> 60, "day" -> 1000
+	Thresholds           map[string]float64     // e.g., "warning" -> 0.75, "throttled" -> 1.0
+	DailyQuotaExhausted  bool                   // New: Flag for daily quota exhaustion
+	DailyQuotaResetTime  time.Time              // New: When the daily quota resets
+	Mutex                sync.RWMutex           // Read-write mutex for concurrent access
 }
 
 // AIProviderRateLimiter defines the interface for provider-agnostic rate limiting
@@ -33,6 +35,12 @@ type AIProviderRateLimiter interface {
 
 	// GetProviderState returns the complete state for a provider (for testing/debugging)
 	GetProviderState(providerID string) (*ProviderRateLimitState, bool)
+
+	// New: SetQuotaExhausted flags a provider as daily quota exhausted until a specified reset time
+	SetQuotaExhausted(providerID string, resetTime time.Time)
+
+	// New: ClearQuotaExhaustion clears the daily quota exhausted flag for a provider
+	ClearQuotaExhaustion(providerID string)
 }
 
 // StatusCallback defines the function signature for status change notifications
@@ -254,6 +262,25 @@ func (rm *RateLimitManager) getProviderUsageLocked(provider *ProviderRateLimitSt
 
 // getProviderStatusLocked returns current status without acquiring locks (internal method)
 func (rm *RateLimitManager) getProviderStatusLocked(provider *ProviderRateLimitState) string {
+	// Check daily quota exhaustion first
+	if provider.DailyQuotaExhausted {
+		// If reset time has passed, it should be cleared by the service calling this.
+		// But as a fallback, if not, consider it normal.
+		if time.Now().After(provider.DailyQuotaResetTime) {
+			// This scenario should ideally be handled by the calling service (e.g., GeminiCLIService)
+			// clearing the flag. If it reaches here and time has passed, we treat it as normal
+			// but log a warning as it indicates a potential state management issue.
+			rm.logger.Warn("Daily quota exhaustion flag found set but reset time has passed. Auto-clearing.",
+				"provider", provider.ProviderID,
+				"reset_time", provider.DailyQuotaResetTime)
+			provider.DailyQuotaExhausted = false
+			provider.DailyQuotaResetTime = time.Time{}
+			// Fall through to normal rate limit check
+		} else {
+			return "Quota Exhausted"
+		}
+	}
+
 	// Use minute window as primary indicator
 	usage, limit := rm.getProviderUsageLocked(provider, "minute")
 	if limit == 0 {
@@ -297,6 +324,53 @@ func (rm *RateLimitManager) GetProviderState(providerID string) (*ProviderRateLi
 
 	provider, exists := rm.providers[providerID]
 	return provider, exists
+}
+
+// SetQuotaExhausted flags a provider as daily quota exhausted until a specified reset time
+func (rm *RateLimitManager) SetQuotaExhausted(providerID string, resetTime time.Time) {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	provider, exists := rm.providers[providerID]
+	if !exists {
+		rm.logger.Warn("Attempt to set quota exhausted for unknown provider", "provider", providerID)
+		return
+	}
+
+	provider.Mutex.Lock()
+	defer provider.Mutex.Unlock()
+
+	if !provider.DailyQuotaExhausted {
+		provider.DailyQuotaExhausted = true
+		provider.DailyQuotaResetTime = resetTime
+		rm.logger.Warn("Daily quota exhausted for provider",
+			"provider", providerID,
+			"reset_time", resetTime)
+		rm.notifyStatusChange(providerID, "Quota Exhausted")
+	}
+}
+
+// ClearQuotaExhaustion clears the daily quota exhausted flag for a provider
+func (rm *RateLimitManager) ClearQuotaExhaustion(providerID string) {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
+
+	provider, exists := rm.providers[providerID]
+	if !exists {
+		return
+	}
+
+	provider.Mutex.Lock()
+	defer provider.Mutex.Unlock()
+
+	if provider.DailyQuotaExhausted {
+		provider.DailyQuotaExhausted = false
+		provider.DailyQuotaResetTime = time.Time{} // Clear reset time
+		rm.logger.Info("Daily quota exhaustion cleared for provider", "provider", providerID)
+		// Re-evaluate status after clearing exhaustion
+		newStatus := rm.getProviderStatusLocked(provider)
+		rm.notifyStatusChange(providerID, newStatus)
+	}
 }
 
 // RateLimiter provides backward compatibility with existing code
