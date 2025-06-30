@@ -202,8 +202,10 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 			response, err = h.aiService.QueryWithContext(query, conversationHistory)
 		}
 	} else {
-		// For main channel messages, use regular query
-		response, err = h.aiService.QueryAI(query)
+		// For main channel messages, we'll get the response in processMainChannelQuery
+		// using integrated summarization to avoid duplicate API calls
+		response = "" // Will be handled by processMainChannelQuery
+		err = nil
 	}
 
 	if err != nil {
@@ -222,7 +224,8 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 		h.processMainChannelQuery(s, m, query, response)
 	} else {
 		// If already in a thread, reply directly with contextual response
-		if _, err := s.ChannelMessageSendReply(m.ChannelID, response, m.Reference()); err != nil {
+		// Handle Discord's 2000 character limit by chunking if necessary
+		if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
 			h.logger.Error("Failed to send AI response in thread", "error", err)
 		} else {
 			h.logger.Info("AI contextual response sent successfully in existing thread",
@@ -234,17 +237,32 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 
 // processMainChannelQuery handles AI queries from main channels by creating threads
 func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.MessageCreate, query string, response string) {
-	h.logger.Info("Processing main channel query, creating thread", "query", query)
+	h.logger.Info("Processing main channel query, creating thread with integrated summarization", "query", query)
 
-	// Get a summarized title for the thread using AI service
-	threadTitle, err := h.aiService.SummarizeQuery(query)
+	// Use integrated query with summary to get both response and thread title in one API call
+	aiResponse, summary, err := h.aiService.QueryAIWithSummary(query)
 	if err != nil {
-		h.logger.Error("Failed to summarize query for thread title", "error", err)
-		// Use fallback title if summarization fails
+		h.logger.Error("Failed to get AI response with summary", "error", err)
+		// Fallback: reply in main channel if AI query fails
+		errorMsg := "I'm sorry, I encountered an error while processing your request. Please try again later."
+		if _, err := s.ChannelMessageSendReply(m.ChannelID, errorMsg, m.Reference()); err != nil {
+			h.logger.Error("Failed to send error reply", "error", err)
+		}
+		return
+	}
+
+	// Determine thread title from extracted summary
+	var threadTitle string
+	if summary != "" {
+		threadTitle = summary
+		h.logger.Info("Using extracted summary as thread title", "summary", summary, "length", len(summary))
+	} else {
+		// Fallback to manual title creation if summary extraction failed
+		h.logger.Warn("No summary extracted, using fallback title generation")
 		threadTitle = h.createFallbackTitle(query)
 	}
 
-	h.logger.Info("Thread title created", "title", threadTitle, "length", len(threadTitle))
+	h.logger.Info("Thread title determined", "title", threadTitle, "length", len(threadTitle), "api_calls_saved", 1)
 
 	// Create a public thread in the channel
 	thread, err := s.ThreadStart(m.ChannelID, threadTitle, discordgo.ChannelTypeGuildPublicThread, 60) // 60 minute auto-archive
@@ -253,8 +271,8 @@ func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.Mes
 
 		// Fallback: reply in main channel if thread creation fails
 		errorMsg := "I encountered an issue creating a thread for our conversation. Here's my response:"
-		fallbackResponse := errorMsg + "\n\n" + response
-		if _, err := s.ChannelMessageSendReply(m.ChannelID, fallbackResponse, m.Reference()); err != nil {
+		fallbackResponse := errorMsg + "\n\n" + aiResponse
+		if err := h.sendResponseInChunks(s, m.ChannelID, fallbackResponse); err != nil {
 			h.logger.Error("Failed to send fallback response", "error", err)
 		}
 		return
@@ -269,21 +287,24 @@ func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.Mes
 	h.recordThreadOwnership(thread.ID, m.Author.ID, s.State.User.ID)
 
 	// Post the AI response as the first message in the newly created thread
-	if _, err := s.ChannelMessageSend(thread.ID, response); err != nil {
+	// Handle Discord's 2000 character limit by chunking if necessary
+	if err := h.sendResponseInChunks(s, thread.ID, aiResponse); err != nil {
 		h.logger.Error("Failed to send AI response in new thread", "error", err, "thread_id", thread.ID)
 
 		// If we can't post in the thread, try to reply in main channel as fallback
 		errorMsg := "I created a thread but couldn't post my response there. Here's my answer:"
-		fallbackResponse := errorMsg + "\n\n" + response
-		if _, err := s.ChannelMessageSendReply(m.ChannelID, fallbackResponse, m.Reference()); err != nil {
+		fallbackResponse := errorMsg + "\n\n" + aiResponse
+		// Also chunk the fallback response if needed
+		if err := h.sendResponseInChunks(s, m.ChannelID, fallbackResponse); err != nil {
 			h.logger.Error("Failed to send fallback response after thread creation", "error", err)
 		}
 	} else {
-		h.logger.Info("AI response posted successfully in new thread",
-			"response_length", len(response),
+		h.logger.Info("AI response posted successfully in new thread with integrated summarization",
+			"response_length", len(aiResponse),
 			"thread_id", thread.ID,
 			"message_id", m.ID,
-			"thread_owner", m.Author.ID)
+			"thread_owner", m.Author.ID,
+			"api_calls_made", 1)
 	}
 }
 
@@ -458,7 +479,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 			return false
 		}
 	}
-
+	
 	h.logger.Info("Auto-response triggered for original user in bot thread",
 		"thread_id", threadID,
 		"user_id", authorID)
@@ -487,4 +508,91 @@ func (h *Handler) cleanupThreadOwnership(maxAge int64) {
 				"age_seconds", currentTime-ownership.CreationTime)
 		}
 	}
+}
+
+// sendResponseInChunks sends a response message, splitting it into chunks if it exceeds Discord's 2000 character limit
+func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, response string) error {
+	const maxDiscordMessageLength = 2000
+	
+	// If response fits in one message, send it directly
+	if len(response) <= maxDiscordMessageLength {
+		_, err := s.ChannelMessageSend(channelID, response)
+		return err
+	}
+	
+	h.logger.Info("Response exceeds Discord limit, chunking message",
+		"response_length", len(response),
+		"max_length", maxDiscordMessageLength,
+		"channel_id", channelID)
+	
+	// Split response into chunks at word boundaries to avoid breaking sentences
+	chunks := h.splitResponseIntoChunks(response, maxDiscordMessageLength)
+	
+	for i, chunk := range chunks {
+		// Add chunk indicator for multi-part messages
+		var messageContent string
+		if len(chunks) > 1 {
+			messageContent = fmt.Sprintf("**[Part %d/%d]**\n%s", i+1, len(chunks), chunk)
+		} else {
+			messageContent = chunk
+		}
+		
+		if _, err := s.ChannelMessageSend(channelID, messageContent); err != nil {
+			h.logger.Error("Failed to send message chunk",
+				"error", err,
+				"chunk", i+1,
+				"total_chunks", len(chunks),
+				"channel_id", channelID)
+			return fmt.Errorf("failed to send chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+		
+		h.logger.Info("Message chunk sent successfully",
+			"chunk", i+1,
+			"total_chunks", len(chunks),
+			"chunk_length", len(messageContent))
+		
+		// Add small delay between chunks to avoid rate limiting
+		if i < len(chunks)-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	
+	return nil
+}
+
+// splitResponseIntoChunks splits a long response into chunks at word boundaries
+func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []string {
+	// Reserve space for chunk headers like "**[Part 1/X]**\n"
+	const headerReserve = 20
+	chunkSize := maxLength - headerReserve
+	
+	if len(response) <= chunkSize {
+		return []string{response}
+	}
+	
+	var chunks []string
+	remaining := response
+	
+	for len(remaining) > chunkSize {
+		// Find the last space within the chunk size to avoid breaking words
+		cutPoint := chunkSize
+		for cutPoint > 0 && remaining[cutPoint] != ' ' && remaining[cutPoint] != '\n' {
+			cutPoint--
+		}
+		
+		// If no space found in reasonable distance, cut at chunk boundary
+		if cutPoint < chunkSize/2 {
+			cutPoint = chunkSize
+		}
+		
+		chunks = append(chunks, strings.TrimSpace(remaining[:cutPoint]))
+		remaining = strings.TrimSpace(remaining[cutPoint:])
+	}
+	
+	// Add the remaining text as the final chunk
+	if len(remaining) > 0 {
+		chunks = append(chunks, remaining)
+	}
+	
+	return chunks
 }

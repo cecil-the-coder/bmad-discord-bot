@@ -191,7 +191,9 @@ func (g *GeminiCLIService) buildBMADPrompt(userQuery string) string {
 
 USER QUESTION: %s
 
-IMPORTANT: Answer ONLY based on the information provided in the BMAD knowledge base above. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.`, g.bmadKnowledgeBase, userQuery)
+IMPORTANT: Answer ONLY based on the information provided in the BMAD knowledge base above. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.
+
+After your main answer, provide a concise, 8-word or less topic summary of this question for Discord thread titles, prefixed with "[SUMMARY]:". This summary should focus on the BMAD topic or concept being asked about. Example: "[SUMMARY]: BMAD Roles and Responsibilities".`, g.bmadKnowledgeBase, userQuery)
 }
 
 // QueryAI sends a query to the Gemini CLI and returns the response
@@ -250,7 +252,88 @@ func (g *GeminiCLIService) QueryAI(query string) (string, error) {
 	// Build BMAD-constrained prompt
 	bmadPrompt := g.buildBMADPrompt(query)
 
-	return g.executeModelQuery(currentModel, bmadPrompt)
+	response, err := g.executeModelQuery(currentModel, bmadPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Clean citations from the response
+	return g.cleanCitations(response), nil
+}
+
+// QueryAIWithSummary sends a query to the Gemini CLI and returns both the response and extracted summary
+// Returns (response, summary, error) where summary is extracted from the integrated response
+func (g *GeminiCLIService) QueryAIWithSummary(query string) (string, string, error) {
+	if strings.TrimSpace(query) == "" {
+		return "", "", fmt.Errorf("query cannot be empty")
+	}
+
+	// AC 2.3.5: Check and restore models that may have recovered
+	g.checkAndRestoreModels()
+
+	// Check rate limit and daily quota before proceeding
+	if err := g.checkRateLimit(); err != nil {
+		// If the error indicates quota exhaustion, return a specific user-friendly message
+		if strings.Contains(err.Error(), "daily quota exhausted") {
+			providerState, exists := g.rateLimiter.GetProviderState(g.GetProviderID())
+			if exists && !providerState.DailyQuotaResetTime.IsZero() {
+				g.logger.Info("Request blocked due to daily quota exhaustion",
+					"provider", g.GetProviderID(),
+					"query_length", len(query),
+					"reset_time", providerState.DailyQuotaResetTime)
+				errorMsg := fmt.Sprintf("I've reached my daily quota for AI processing. Service will be restored tomorrow at %s UTC.", providerState.DailyQuotaResetTime.Format("15:04"))
+				return errorMsg, "", nil
+			}
+			g.logger.Info("Request blocked due to daily quota exhaustion",
+				"provider", g.GetProviderID(),
+				"query_length", len(query))
+			return "I've reached my daily quota for AI processing. Service will be restored tomorrow at midnight UTC.", "", nil
+		}
+		return "", "", err
+	}
+
+	// AC 2.3.6: Check if all models are unavailable
+	modelStatus := g.getModelStatus()
+	if modelStatus["primary"] != "Available" && modelStatus["fallback"] != "Available" {
+		g.logger.Error("All AI models are currently unavailable",
+			"primary_status", modelStatus["primary"],
+			"fallback_status", modelStatus["fallback"])
+		return "All AI models are currently rate limited. Please try again later.", "", nil
+	}
+
+	// AC 2.3.3: Get the best available model
+	currentModel := g.getCurrentModel()
+
+	g.logger.Info("Sending query to Gemini CLI with integrated summarization",
+		"provider", g.GetProviderID(),
+		"model", currentModel.Name,
+		"query_length", len(query))
+
+	// Register the API call for rate limiting
+	if g.rateLimiter != nil {
+		if err := g.rateLimiter.RegisterCall(g.GetProviderID()); err != nil {
+			g.logger.Warn("Failed to register API call for rate limiting", "error", err)
+		}
+	}
+
+	// Build BMAD-constrained prompt with summary instructions
+	bmadPrompt := g.buildBMADPrompt(query)
+
+	// Execute the query
+	fullResponse, err := g.executeModelQuery(currentModel, bmadPrompt)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Parse the response to extract main answer and summary
+	mainAnswer, summary, parseErr := g.parseResponseWithSummary(fullResponse)
+	if parseErr != nil {
+		g.logger.Warn("Failed to parse response with summary, returning full response",
+			"error", parseErr)
+		return fullResponse, "", nil
+	}
+
+	return mainAnswer, summary, nil
 }
 
 // executeModelQuery executes a query using the specified model
@@ -347,6 +430,69 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 		"response_length", len(responseText))
 
 	return responseText, nil
+}
+
+// parseResponseWithSummary extracts the main answer and summary from an integrated response
+// Returns (mainAnswer, summary, error)
+func (g *GeminiCLIService) parseResponseWithSummary(response string) (string, string, error) {
+	if response == "" {
+		return "", "", fmt.Errorf("empty response")
+	}
+
+	// Look for the [SUMMARY]: delimiter
+	summaryMarker := "[SUMMARY]:"
+	summaryIndex := strings.LastIndex(response, summaryMarker)
+	
+	if summaryIndex == -1 {
+		// No summary found, return the full response as main answer with empty summary
+		g.logger.Warn("No summary marker found in response, summary extraction failed")
+		return strings.TrimSpace(response), "", nil
+	}
+
+	// Extract main answer (everything before [SUMMARY]:)
+	mainAnswer := strings.TrimSpace(response[:summaryIndex])
+	
+	// Extract summary (everything after [SUMMARY]:)
+	summaryStart := summaryIndex + len(summaryMarker)
+	summary := strings.TrimSpace(response[summaryStart:])
+	
+	// Validate summary length (Discord thread title limit is 100 characters)
+	if len(summary) > 100 {
+		g.logger.Warn("Summary too long, truncating",
+			"original_length", len(summary),
+			"summary", summary)
+		summary = summary[:97] + "..."
+	}
+	
+	// Validate summary is not empty
+	if summary == "" {
+		g.logger.Warn("Empty summary extracted")
+		return mainAnswer, "", nil
+	}
+
+	g.logger.Info("Response parsed successfully",
+		"main_answer_length", len(mainAnswer),
+		"summary_length", len(summary),
+		"summary", summary)
+
+	// Clean citations from both main answer and summary
+	mainAnswer = g.cleanCitations(mainAnswer)
+	summary = g.cleanCitations(summary)
+
+	return mainAnswer, summary, nil
+}
+
+// cleanCitations removes citation markers like [cite: 1, 2] from response text
+func (g *GeminiCLIService) cleanCitations(text string) string {
+	// Remove citation patterns like [cite: 1], [cite: 1, 2], [cite: 1,2,3], etc.
+	citationPattern := `\[cite:[^\]]*\]`
+	re := regexp.MustCompile(citationPattern)
+	cleaned := re.ReplaceAllString(text, "")
+	
+	// Clean up any double spaces that might be left after removing citations
+	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
+	
+	return strings.TrimSpace(cleaned)
 }
 
 // isModelRateLimited checks if the error message indicates model-specific rate limiting (but not daily quota)
@@ -748,7 +894,13 @@ After your main answer, provide a concise, 8-word or less topic summary of this 
 		prompt = g.buildBMADPrompt(query)
 	}
 
-	return g.executeModelQuery(currentModel, prompt)
+	response, err := g.executeModelQuery(currentModel, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Clean citations from the response
+	return g.cleanCitations(response), nil
 }
 
 // SummarizeConversation creates a summary of conversation history for context preservation

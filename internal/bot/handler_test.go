@@ -51,6 +51,38 @@ func (m *MockAIService) SummarizeQuery(query string) (string, error) {
 	return strings.Join(words[:3], " ") + "...", nil
 }
 
+// QueryAIWithSummary sends a query and returns both response and extracted summary
+func (m *MockAIService) QueryAIWithSummary(query string) (string, string, error) {
+	summaryKey := "integrated:" + query
+	if err, exists := m.errors[summaryKey]; exists {
+		return "", "", err
+	}
+	if response, exists := m.responses[summaryKey]; exists {
+		// Parse the response to extract main answer and summary
+		parts := strings.Split(response, "|SUMMARY|")
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
+		}
+		return response, "", nil
+	}
+	
+	// Default behavior: generate both response and summary
+	mainResponse := "Default mock response for: " + query
+	
+	// Generate a simple summary (first 3 words + "...")
+	words := strings.Fields(query)
+	summary := ""
+	if len(words) == 0 {
+		summary = "Question"
+	} else if len(words) <= 3 {
+		summary = query
+	} else {
+		summary = strings.Join(words[:3], " ") + "..."
+	}
+	
+	return mainResponse, summary, nil
+}
+
 // QueryWithContext sends a query with conversation history context to the AI service
 func (m *MockAIService) QueryWithContext(query string, conversationHistory string) (string, error) {
 	contextKey := "context:" + query + ":" + conversationHistory
@@ -98,6 +130,15 @@ func (m *MockAIService) SetContextResponse(query, conversationHistory, response 
 
 func (m *MockAIService) SetConversationSummary(summary string) {
 	m.responses["conversation_summary"] = summary
+}
+
+func (m *MockAIService) SetIntegratedResponse(query, response, summary string) {
+	integratedKey := "integrated:" + query
+	if summary != "" {
+		m.responses[integratedKey] = response + "|SUMMARY|" + summary
+	} else {
+		m.responses[integratedKey] = response
+	}
 }
 
 // GetProviderID returns the provider ID for testing

@@ -328,7 +328,8 @@ fi
 
 	assert.NoError(t, err)
 	assert.Contains(t, response, "BMAD-METHOD is a framework")
-	assert.Contains(t, response, "[cite: 85]")
+	// Citations should be cleaned by the cleanCitations method
+	assert.NotContains(t, response, "[cite: 85]")
 }
 
 func TestQueryWithContext_BMADConstraints(t *testing.T) {
@@ -364,7 +365,8 @@ fi
 
 	assert.NoError(t, err)
 	assert.Contains(t, response, "Based on BMAD knowledge")
-	assert.Contains(t, response, "[cite: 90]")
+	// Citations should be cleaned by the cleanCitations method
+	assert.NotContains(t, response, "[cite: 90]")
 }
 
 // ========== NEW TESTS FOR STORY 2.2 ==========
@@ -682,4 +684,195 @@ exit 1
 	assert.Equal(t, 0, mockRL.resetTime.Hour())
 	assert.Equal(t, 0, mockRL.resetTime.Minute())
 	assert.Equal(t, 0, mockRL.resetTime.Second())
+}
+
+// ========== NEW TESTS FOR STORY 2.4 ==========
+
+// Test parseResponseWithSummary method
+func TestGeminiCLIService_ParseResponseWithSummary(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	testCases := []struct {
+		name              string
+		response          string
+		expectedAnswer    string
+		expectedSummary   string
+		expectError       bool
+	}{
+		{
+			name:              "Valid response with summary",
+			response:          "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]: BMAD Framework Overview",
+			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
+			expectedSummary:   "BMAD Framework Overview",
+			expectError:       false,
+		},
+		{
+			name:              "Response without summary marker",
+			response:          "BMAD-METHOD is a framework for AI development.",
+			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
+			expectedSummary:   "",
+			expectError:       false,
+		},
+		{
+			name:              "Response with empty summary",
+			response:          "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]:",
+			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
+			expectedSummary:   "",
+			expectError:       false,
+		},
+		{
+			name:              "Response with long summary (should truncate)",
+			response:          "BMAD-METHOD is a framework.\n\n[SUMMARY]: This is a very long summary that exceeds the Discord 100 character limit and should be truncated properly",
+			expectedAnswer:    "BMAD-METHOD is a framework.",
+			expectedSummary:   "This is a very long summary that exceeds the Discord 100 character limit and should be truncated ...",
+			expectError:       false,
+		},
+		{
+			name:              "Multiple summary markers (should use last one)",
+			response:          "First part [SUMMARY]: First summary\n\nSecond part [SUMMARY]: Second summary",
+			expectedAnswer:    "First part [SUMMARY]: First summary Second part",
+			expectedSummary:   "Second summary",
+			expectError:       false,
+		},
+		{
+			name:              "Empty response",
+			response:          "",
+			expectedAnswer:    "",
+			expectedSummary:   "",
+			expectError:       true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			answer, summary, err := service.parseResponseWithSummary(tc.response)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedAnswer, answer)
+				assert.Equal(t, tc.expectedSummary, summary)
+			}
+		})
+	}
+}
+
+// Test QueryAIWithSummary integration
+func TestGeminiCLIService_QueryAIWithSummary(t *testing.T) {
+	tmpDir := t.TempDir()
+	execPath := filepath.Join(tmpDir, "gemini-cli")
+
+	// Script that simulates integrated response with summary
+	script := `#!/bin/sh
+if echo "$4" | grep -q "After your main answer, provide a concise"; then
+	  echo "BMAD-METHOD is a framework for AI-driven development [cite: 100]
+
+[SUMMARY]: BMAD Framework Basics"
+else
+	  echo "Response without summary integration"
+fi
+`
+	err := os.WriteFile(execPath, []byte(script), 0755)
+	require.NoError(t, err)
+
+	// Setup service
+	service, _ := setupTestServiceWithBMAD(t)
+	service.cliPath = execPath
+
+	// Test QueryAIWithSummary
+	response, summary, err := service.QueryAIWithSummary("What is BMAD?")
+
+	assert.NoError(t, err)
+	assert.Contains(t, response, "BMAD-METHOD is a framework")
+	// Citations should be cleaned by the cleanCitations method
+	assert.NotContains(t, response, "[cite: 100]")
+	assert.Equal(t, "BMAD Framework Basics", summary)
+}
+
+// Test QueryAIWithSummary with quota exhaustion
+func TestGeminiCLIService_QueryAIWithSummary_QuotaExhausted(t *testing.T) {
+	service, _ := setupTestServiceWithBMAD(t)
+
+	mockRL := &mockQuotaRateLimiter{
+		mockRateLimiter: &mockRateLimiter{status: "Quota Exhausted"},
+		quotaExhausted:  true,
+		resetTime:       time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+	service.SetRateLimiter(mockRL)
+
+	// Test QueryAIWithSummary returns user-friendly message
+	response, summary, err := service.QueryAIWithSummary("test query")
+	assert.NoError(t, err)
+	assert.Contains(t, response, "I've reached my daily quota for AI processing")
+	assert.Equal(t, "", summary)
+}
+
+// Test QueryAIWithSummary with parsing failure
+func TestGeminiCLIService_QueryAIWithSummary_ParsingFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	execPath := filepath.Join(tmpDir, "gemini-cli")
+
+	// Script that returns response without summary despite instruction
+	script := `#!/bin/sh
+echo "BMAD-METHOD response without summary marker"
+`
+	err := os.WriteFile(execPath, []byte(script), 0755)
+	require.NoError(t, err)
+
+	// Setup service
+	service, _ := setupTestServiceWithBMAD(t)
+	service.cliPath = execPath
+
+	// Test QueryAIWithSummary handles parsing failure gracefully
+	response, summary, err := service.QueryAIWithSummary("What is BMAD?")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "BMAD-METHOD response without summary marker", response)
+	assert.Equal(t, "", summary) // Should be empty when no summary found
+}
+
+// Test buildBMADPrompt includes summary instructions
+func TestGeminiCLIService_BuildBMADPrompt_WithSummaryInstructions(t *testing.T) {
+	service := &GeminiCLIService{
+		bmadKnowledgeBase: "Test BMAD knowledge base content",
+	}
+
+	userQuery := "What is BMAD-METHOD?"
+	prompt := service.buildBMADPrompt(userQuery)
+
+	// Verify the prompt includes BMAD knowledge base
+	assert.Contains(t, prompt, "Test BMAD knowledge base content")
+	assert.Contains(t, prompt, "USER QUESTION: What is BMAD-METHOD?")
+	assert.Contains(t, prompt, "Answer ONLY based on the information provided in the BMAD knowledge base")
+	
+	// Verify the prompt includes summary instructions
+	assert.Contains(t, prompt, "After your main answer, provide a concise, 8-word or less topic summary")
+	assert.Contains(t, prompt, "prefixed with \"[SUMMARY]:\"")
+	assert.Contains(t, prompt, "Example: \"[SUMMARY]: BMAD Roles and Responsibilities\"")
+}
+
+// Test integration with fallback scenarios
+func TestGeminiCLIService_IntegratedSummarization_FallbackScenarios(t *testing.T) {
+	tmpDir := t.TempDir()
+	execPath := filepath.Join(tmpDir, "gemini-cli")
+
+	// Script that simulates AI failure
+	script := `#!/bin/sh
+echo "AI service temporarily unavailable" >&2
+exit 1
+`
+	err := os.WriteFile(execPath, []byte(script), 0755)
+	require.NoError(t, err)
+
+	// Setup service
+	service, _ := setupTestServiceWithBMAD(t)
+	service.cliPath = execPath
+
+	// Test QueryAIWithSummary with AI failure
+	response, summary, err := service.QueryAIWithSummary("What is BMAD?")
+
+	assert.Error(t, err)
+	assert.Equal(t, "", response)
+	assert.Equal(t, "", summary)
 }

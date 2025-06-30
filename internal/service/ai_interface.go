@@ -7,6 +7,10 @@ type AIService interface {
 	// Following coding standards: all AI business logic must use this interface
 	QueryAI(query string) (string, error)
 
+	// QueryAIWithSummary sends a query and returns both response and extracted summary
+	// Returns (response, summary, error) with integrated summarization to reduce API calls
+	QueryAIWithSummary(query string) (string, string, error)
+
 	// SummarizeQuery creates a summarized version of a user query suitable for Discord thread titles
 	// Returns a summary limited to 100 characters for Discord thread title requirements
 	SummarizeQuery(query string) (string, error)
