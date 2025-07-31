@@ -68,6 +68,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate knowledge base refresh configuration
+	kbConfig, err := loadKnowledgeBaseConfig()
+	if err != nil {
+		slog.Error("Failed to load knowledge base configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize storage service
 	storageService := storage.NewSQLiteStorageService(databasePath)
 	if err := storageService.Initialize(context.Background()); err != nil {
@@ -105,6 +112,25 @@ func main() {
 	slog.Info("AI service initialized successfully",
 		"cli_path", geminiCLIPath,
 		"provider", aiService.GetProviderID())
+
+	// Setup graceful shutdown with context and timeout
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize knowledge base updater if enabled
+	var knowledgeUpdater service.KnowledgeUpdater
+	if kbConfig.Enabled {
+		knowledgeUpdater = service.NewHTTPKnowledgeUpdater(*kbConfig, logger)
+		if err := knowledgeUpdater.Start(ctx); err != nil {
+			slog.Error("Failed to start knowledge base updater", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Knowledge base refresh service started", 
+			"remote_url", kbConfig.RemoteURL,
+			"interval", kbConfig.RefreshInterval)
+	} else {
+		slog.Info("Knowledge base refresh service disabled")
+	}
 
 	// Create bot handler with AI service and storage service
 	handler := bot.NewHandler(logger, aiService, storageService)
@@ -177,10 +203,6 @@ func main() {
 	slog.Info("Bot is now running with thread creation capabilities. Press CTRL+C to exit.")
 	slog.Info("Thread permissions note: Ensure bot has 'Create Public Threads' permission in target channels")
 
-	// Setup graceful shutdown with context and timeout
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Wait for CTRL+C or other term signal
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
@@ -199,6 +221,16 @@ func main() {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		
+		// Stop knowledge base updater
+		if knowledgeUpdater != nil {
+			if err := knowledgeUpdater.Stop(); err != nil {
+				slog.Error("Error stopping knowledge base updater", "error", err)
+			} else {
+				slog.Info("Knowledge base updater stopped successfully")
+			}
+		}
+		
 		if err := dg.Close(); err != nil {
 			slog.Error("Error during Discord session cleanup", "error", err)
 		} else {
@@ -406,4 +438,58 @@ func loadDatabaseConfig() (string, int, error) {
 		"recovery_window_minutes", recoveryWindowMinutes)
 
 	return databasePath, recoveryWindowMinutes, nil
+}
+
+// loadKnowledgeBaseConfig loads knowledge base refresh configuration from environment variables
+func loadKnowledgeBaseConfig() (*service.Config, error) {
+	// Load enabled flag (default: true)
+	enabledStr := os.Getenv("BMAD_KB_REFRESH_ENABLED")
+	if enabledStr == "" {
+		enabledStr = "true" // Default value
+	}
+	
+	enabled, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BMAD_KB_REFRESH_ENABLED: %s", enabledStr)
+	}
+
+	// Load refresh interval in hours (default: 6)
+	intervalHoursStr := os.Getenv("BMAD_KB_REFRESH_INTERVAL_HOURS")
+	if intervalHoursStr == "" {
+		intervalHoursStr = "6" // Default value
+	}
+	
+	intervalHours, err := strconv.Atoi(intervalHoursStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BMAD_KB_REFRESH_INTERVAL_HOURS: %s", intervalHoursStr)
+	}
+	
+	if intervalHours <= 0 {
+		return nil, fmt.Errorf("BMAD_KB_REFRESH_INTERVAL_HOURS must be positive: %d", intervalHours)
+	}
+
+	// Load remote URL (default: GitHub raw link)
+	remoteURL := os.Getenv("BMAD_KB_REMOTE_URL")
+	if remoteURL == "" {
+		remoteURL = "https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md"
+	}
+
+	config := &service.Config{
+		RemoteURL:       remoteURL,
+		LocalFilePath:   "internal/knowledge/bmad.md",
+		RefreshInterval: time.Duration(intervalHours) * time.Hour,
+		Enabled:         enabled,
+		HTTPTimeout:     30 * time.Second,
+		RetryAttempts:   3,
+		RetryDelay:      time.Second,
+	}
+
+	slog.Info("Knowledge base configuration loaded",
+		"enabled", enabled,
+		"remote_url", remoteURL,
+		"local_file", config.LocalFilePath,
+		"interval_hours", intervalHours,
+		"http_timeout", config.HTTPTimeout)
+
+	return config, nil
 }
