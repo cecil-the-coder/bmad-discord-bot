@@ -70,7 +70,7 @@ Competing|test status eight
 
 func TestLoadBMADStatusesFileNotFound(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	
+
 	err := LoadBMADStatuses("nonexistent_file.txt", logger)
 	if err == nil {
 		t.Error("Expected error for nonexistent file, got nil")
@@ -80,7 +80,7 @@ func TestLoadBMADStatusesFileNotFound(t *testing.T) {
 func TestGetRandomBMADStatusFallback(t *testing.T) {
 	// Clear statuses to test fallback
 	bmadStatuses = []BMADStatus{}
-	
+
 	status := GetRandomBMADStatus()
 	if status.Text != "BMAD methodology" {
 		t.Errorf("Expected fallback status 'BMAD methodology', got '%s'", status.Text)

@@ -16,6 +16,17 @@ type MessageState struct {
 	UpdatedAt         int64   `db:"updated_at"`          // Record last update timestamp
 }
 
+// ThreadOwnership represents bot-created thread ownership tracking
+type ThreadOwnership struct {
+	ID             int64  `db:"id"`               // Primary key, auto-increment
+	ThreadID       string `db:"thread_id"`        // Discord thread ID (unique)
+	OriginalUserID string `db:"original_user_id"` // ID of user who started the conversation
+	CreatedBy      string `db:"created_by"`       // Bot ID that created the thread
+	CreationTime   int64  `db:"creation_time"`    // Unix timestamp when thread was created
+	CreatedAt      int64  `db:"created_at"`       // Record creation timestamp
+	UpdatedAt      int64  `db:"updated_at"`       // Record last update timestamp
+}
+
 // StorageService defines the interface for message state persistence operations
 type StorageService interface {
 	// Initialize sets up the database connection and creates necessary tables
@@ -38,4 +49,16 @@ type StorageService interface {
 
 	// HealthCheck verifies that the database connection is working
 	HealthCheck(ctx context.Context) error
+
+	// GetThreadOwnership retrieves thread ownership information for a thread
+	GetThreadOwnership(ctx context.Context, threadID string) (*ThreadOwnership, error)
+
+	// UpsertThreadOwnership creates or updates thread ownership information
+	UpsertThreadOwnership(ctx context.Context, ownership *ThreadOwnership) error
+
+	// GetAllThreadOwnerships retrieves all thread ownership records
+	GetAllThreadOwnerships(ctx context.Context) ([]*ThreadOwnership, error)
+
+	// CleanupOldThreadOwnerships removes old thread ownership records
+	CleanupOldThreadOwnerships(ctx context.Context, maxAge int64) error
 }

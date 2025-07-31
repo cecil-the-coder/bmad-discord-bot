@@ -80,3 +80,12 @@ As a user, I want to see the bot's Discord status change color, so that I have a
 - **Story 2.4**: Integrate Query Summarization into Main Response
 - **Story 2.5**: Implement Bot State Persistence
 - **Story 2.6**: Implement Periodic BMAD Knowledge Base Refresh
+
+## Epic 3: Production Deployment & CI/CD Pipeline
+
+**Goal**: Establish automated deployment pipeline and production-ready Kubernetes manifests for reliable, scalable bot deployment with comprehensive monitoring and security.
+
+**📋 Detailed Epic**: See [epic-3.md](epic-3.md) for complete story definitions and acceptance criteria.
+
+**Stories Overview**:
+- **Story 3.1**: Implement GitHub Workflows and Kubernetes Deployment Manifests

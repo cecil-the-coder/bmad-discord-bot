@@ -512,11 +512,11 @@ func TestRateLimitIntegration(t *testing.T) {
 // TestRemoveSummaryMarkers tests the summary marker removal functionality
 func TestRemoveSummaryMarkers(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	
+
 	service := &OllamaAIService{
 		logger: logger,
 	}
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -548,7 +548,7 @@ func TestRemoveSummaryMarkers(t *testing.T) {
 			expected: "",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := service.removeSummaryMarkers(tt.input)
@@ -562,11 +562,11 @@ func TestRemoveSummaryMarkers(t *testing.T) {
 // TestUnescapeText tests the text unescaping functionality
 func TestUnescapeText(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	
+
 	service := &OllamaAIService{
 		logger: logger,
 	}
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -603,7 +603,7 @@ func TestUnescapeText(t *testing.T) {
 			expected: "**Bold text**\n\n*Italic text*\n\n```\nCode block\n```",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := service.unescapeText(tt.input)

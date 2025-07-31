@@ -44,7 +44,7 @@ func (sr *StatusRotator) Start(ctx context.Context) {
 	sr.enabled = true
 	InitRandomSeed() // Initialize random seed for status selection
 
-	sr.logger.Info("Starting BMAD status rotation", 
+	sr.logger.Info("Starting BMAD status rotation",
 		"interval", sr.interval,
 		"total_statuses", len(bmadStatuses))
 
@@ -93,7 +93,7 @@ func (sr *StatusRotator) rotateStatus() {
 	}
 
 	status := GetRandomBMADStatus()
-	
+
 	err := sr.session.UpdateStatusComplex(discordgo.UpdateStatusData{
 		Activities: []*discordgo.Activity{{
 			Name: status.Text,
@@ -103,7 +103,7 @@ func (sr *StatusRotator) rotateStatus() {
 	})
 
 	if err != nil {
-		sr.logger.Error("Failed to update Discord status", 
+		sr.logger.Error("Failed to update Discord status",
 			"error", err,
 			"activity_type", status.ActivityType,
 			"text", status.Text)
@@ -112,7 +112,7 @@ func (sr *StatusRotator) rotateStatus() {
 
 	// Log status update with activity type name for clarity
 	activityTypeName := getActivityTypeName(status.ActivityType)
-	sr.logger.Info("Discord status updated", 
+	sr.logger.Info("Discord status updated",
 		"activity_type", activityTypeName,
 		"text", status.Text,
 		"full_status", activityTypeName+" "+status.Text)

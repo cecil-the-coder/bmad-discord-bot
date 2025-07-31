@@ -17,6 +17,14 @@ import (
 	"bmad-knowledge-bot/internal/monitor"
 )
 
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // OllamaRequest represents the request payload for Ollama API
 type OllamaRequest struct {
 	Model   string                 `json:"model"`
@@ -584,6 +592,9 @@ func (o *OllamaAIService) buildStructuredPrompt(userQuery string) string {
 
 ---
 
+# YOUR IDENTITY
+You are bmadhelper, the BMAD-METHOD assistant agent on Discord.
+
 # TASK
 Answer the user's question using ONLY the BMAD knowledge base above.
 
@@ -596,9 +607,15 @@ Answer the user's question using ONLY the BMAD knowledge base above.
 3. PROVIDE a clear, specific answer using BMAD terminology
 4. USE proper BMAD concepts (agents, workflows, stories, epics, etc.)
 5. If information is NOT in the knowledge base, say "This information is not available in the BMAD knowledge base"
+6. If asked about release dates, updates, ETAs, or future features, remind the user: "I only have access to current BMAD documentation and cannot provide information about future updates or release schedules."
 
 # RESPONSE FORMAT
-[Your answer here using BMAD terminology]
+Write your answer with proper paragraph breaks for Discord readability. Use double line breaks (blank lines) between paragraphs. Structure your response clearly with:
+- Introduction paragraph (double line break after)
+- Main content paragraphs (double line break between each)
+- Conclusion or summary paragraph (if needed)
+
+[Your answer here using BMAD terminology - remember to use double line breaks between paragraphs]
 
 [SUMMARY]: [6-8 word summary for Discord thread title]
 
@@ -611,12 +628,14 @@ Answer the user's question using ONLY the BMAD knowledge base above.
 
 // buildSimplePrompt creates a simpler, more direct prompt
 func (o *OllamaAIService) buildSimplePrompt(userQuery string) string {
-	return fmt.Sprintf(`BMAD Knowledge Base:
+	return fmt.Sprintf(`You are bmadhelper, the BMAD-METHOD assistant agent on Discord.
+
+BMAD Knowledge Base:
 %s
 
 Question: %s
 
-Answer using only BMAD knowledge base information. Use BMAD terms like agents, workflows, stories, and epics. End with [SUMMARY]: brief title.`, o.bmadKnowledgeBase, userQuery)
+Answer using only BMAD knowledge base information. Use BMAD terms like agents, workflows, stories, and epics. If asked about release dates, updates, ETAs, or future features, remind the user that you only have access to current BMAD documentation. Format with proper paragraph breaks for Discord readability - use double line breaks (blank lines) between paragraphs. End with [SUMMARY]: brief title.`, o.bmadKnowledgeBase, userQuery)
 }
 
 // buildDetailedPrompt creates a more detailed prompt with examples
@@ -627,7 +646,7 @@ func (o *OllamaAIService) buildDetailedPrompt(userQuery string) string {
 %s
 
 ## YOUR ROLE
-You are a BMAD-METHOD expert. Your job is to answer questions using ONLY the knowledge base above.
+You are bmadhelper, the BMAD-METHOD assistant agent on Discord. Your job is to answer questions using ONLY the knowledge base above. You are a helpful AI assistant specializing in BMAD methodology.
 
 ## QUESTION
 %s
@@ -640,19 +659,25 @@ You are a BMAD-METHOD expert. Your job is to answer questions using ONLY the kno
 ✗ DON'T make up information not in the knowledge base
 ✗ DON'T use general software development advice
 ✗ DON'T reference external frameworks or methods
+⚠️ IF asked about release dates, updates, ETAs, or future features, remind the user: "I only have access to current BMAD documentation and cannot provide information about future updates or release schedules."
 
 ## EXAMPLE GOOD RESPONSE
 "In BMAD-METHOD, agents work in structured workflows. The SM agent creates stories from sharded PRD documents, while the Dev agent implements approved stories following the coding standards."
 
 ## YOUR RESPONSE
-[Answer here]
+Format your answer with proper paragraph breaks for Discord readability - use double line breaks (blank lines) between paragraphs.
+
+[Answer here with clear paragraph spacing - remember double line breaks between paragraphs]
 
 [SUMMARY]: [Brief BMAD-focused title]`, o.bmadKnowledgeBase, userQuery)
 }
 
 // buildChainOfThoughtPrompt uses chain-of-thought reasoning for better responses
 func (o *OllamaAIService) buildChainOfThoughtPrompt(userQuery string) string {
-	return fmt.Sprintf(`# BMAD KNOWLEDGE BASE
+	return fmt.Sprintf(`# YOUR IDENTITY
+You are bmadhelper, the BMAD-METHOD assistant agent on Discord.
+
+# BMAD KNOWLEDGE BASE
 %s
 
 ---
@@ -665,7 +690,8 @@ Let me think step by step:
 1. IDENTIFY: What BMAD concepts does this question relate to?
 2. SEARCH: What information is available in the knowledge base?
 3. CONNECT: How do these concepts work together in BMAD?
-4. RESPOND: Provide a clear answer using BMAD terminology
+4. CHECK: Is this about future updates/releases? (If so, remind user I only have current documentation)
+5. RESPOND: Provide a clear answer using BMAD terminology
 
 # ANALYSIS
 [Think through the question step by step]
@@ -674,7 +700,7 @@ Let me think step by step:
 - How should I structure my response?
 
 # ANSWER
-[Your detailed BMAD-focused response]
+[Your detailed BMAD-focused response - use double line breaks (blank lines) between paragraphs for Discord readability]
 
 [SUMMARY]: [Concise BMAD topic summary]`, o.bmadKnowledgeBase, userQuery)
 }
@@ -759,7 +785,9 @@ func (o *OllamaAIService) executeQuery(prompt string) (string, error) {
 	o.logger.Info("Ollama API response received",
 		"provider", o.GetProviderID(),
 		"model", o.modelName,
-		"response_length", len(unescapedResponse))
+		"response_length", len(unescapedResponse),
+		"has_newlines", strings.Contains(unescapedResponse, "\n"),
+		"newline_count", strings.Count(unescapedResponse, "\n"))
 
 	return unescapedResponse, nil
 }
@@ -872,21 +900,35 @@ func (o *OllamaAIService) parseResponseWithSummary(response string) (string, str
 		return "", "", fmt.Errorf("empty response")
 	}
 
-	// Look for the [SUMMARY]: delimiter
-	summaryMarker := "[SUMMARY]:"
-	summaryIndex := strings.LastIndex(response, summaryMarker)
+	// Look for various summary markers the AI might use
+	summaryMarkers := []string{"[SUMMARY]:", "### Summary", "##Summary", "Summary:", "SUMMARY:"}
+	var summaryIndex int = -1
+	var foundMarker string
+	
+	for _, marker := range summaryMarkers {
+		if idx := strings.LastIndex(response, marker); idx != -1 {
+			summaryIndex = idx
+			foundMarker = marker
+			break
+		}
+	}
 
 	if summaryIndex == -1 {
 		// No summary found, return the full response as main answer with empty summary
-		o.logger.Warn("No summary marker found in response, summary extraction failed")
-		return strings.TrimSpace(response), "", nil
+		o.logger.Warn("No summary marker found in response, summary extraction failed",
+			"response_preview", response[len(response)-min(200, len(response)):]) // Show last 200 chars for debugging
+		cleanedResponse := o.removeUnnecessaryHeaders(strings.TrimSpace(response))
+		return cleanedResponse, "", nil
 	}
 
-	// Extract main answer (everything before [SUMMARY]:)
+	// Extract main answer (everything before the summary marker)
 	mainAnswer := strings.TrimSpace(response[:summaryIndex])
+	
+	// Remove unnecessary headers from the main answer
+	mainAnswer = o.removeUnnecessaryHeaders(mainAnswer)
 
-	// Extract summary (everything after [SUMMARY]:)
-	summaryStart := summaryIndex + len(summaryMarker)
+	// Extract summary (everything after the found marker)
+	summaryStart := summaryIndex + len(foundMarker)
 	summary := strings.TrimSpace(response[summaryStart:])
 
 	// Validate summary length (Discord thread title limit is 100 characters)
@@ -918,24 +960,53 @@ func (o *OllamaAIService) parseResponseWithSummary(response string) (string, str
 // unescapeText converts common escape sequences to their actual characters for Discord formatting
 func (o *OllamaAIService) unescapeText(text string) string {
 	// Replace common escape sequences
-	text = strings.ReplaceAll(text, "\\n", "\n")   // Newlines
-	text = strings.ReplaceAll(text, "\\t", "\t")   // Tabs
-	text = strings.ReplaceAll(text, "\\r", "\r")   // Carriage returns
-	text = strings.ReplaceAll(text, "\\\"", "\"")  // Quotes
-	text = strings.ReplaceAll(text, "\\'", "'")    // Single quotes
-	text = strings.ReplaceAll(text, "\\\\", "\\")  // Backslashes (do this last)
+	text = strings.ReplaceAll(text, "\\n", "\n")  // Newlines
+	text = strings.ReplaceAll(text, "\\t", "\t")  // Tabs
+	text = strings.ReplaceAll(text, "\\r", "\r")  // Carriage returns
+	text = strings.ReplaceAll(text, "\\\"", "\"") // Quotes
+	text = strings.ReplaceAll(text, "\\'", "'")   // Single quotes
+	text = strings.ReplaceAll(text, "\\\\", "\\") // Backslashes (do this last)
 	return text
 }
 
-// removeSummaryMarkers removes [SUMMARY]: markers and content from text
+// removeSummaryMarkers removes summary markers and content from text
 func (o *OllamaAIService) removeSummaryMarkers(text string) string {
-	summaryMarker := "[SUMMARY]:"
-	summaryIndex := strings.LastIndex(text, summaryMarker)
-	if summaryIndex == -1 {
-		return text // No summary marker found
+	summaryMarkers := []string{"[SUMMARY]:", "### Summary", "##Summary", "Summary:", "SUMMARY:"}
+	
+	for _, marker := range summaryMarkers {
+		if summaryIndex := strings.LastIndex(text, marker); summaryIndex != -1 {
+			// Return everything before the summary marker, trimmed
+			return strings.TrimSpace(text[:summaryIndex])
+		}
 	}
-	// Return everything before the summary marker, trimmed
-	return strings.TrimSpace(text[:summaryIndex])
+	
+	return text // No summary marker found
+}
+
+// removeUnnecessaryHeaders removes unnecessary headers like "### Answer" from response
+func (o *OllamaAIService) removeUnnecessaryHeaders(text string) string {
+	unnecessaryHeaders := []string{"### Answer", "## Answer", "# Answer", "**Answer**", "Answer:", "ANSWER:"}
+	
+	lines := strings.Split(text, "\n")
+	var filteredLines []string
+	
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		isUnnecessaryHeader := false
+		
+		for _, header := range unnecessaryHeaders {
+			if trimmedLine == header {
+				isUnnecessaryHeader = true
+				break
+			}
+		}
+		
+		if !isUnnecessaryHeader {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+	
+	return strings.Join(filteredLines, "\n")
 }
 
 // cleanCitations removes citation markers like [cite: 1, 2] from response text
@@ -1074,7 +1145,9 @@ CONVERSATION HISTORY:
 
 USER QUESTION: %s
 
-IMPORTANT: You are continuing a conversation about BMAD-METHOD. Answer ONLY based on the information provided in the BMAD knowledge base above. If the follow-up question refers to something mentioned earlier in the conversation, use the conversation history to understand the context. However, your answer must still be grounded in the BMAD knowledge base. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in the BMAD knowledge base. Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.
+IMPORTANT: You are bmadhelper, the BMAD-METHOD assistant agent, continuing a conversation on Discord. Answer ONLY based on the information provided in the BMAD knowledge base above. If the follow-up question refers to something mentioned earlier in the conversation, use the conversation history to understand the context. However, your answer must still be grounded in the BMAD knowledge base. If the question cannot be answered from the knowledge base, politely indicate that the information is not available in your BMAD knowledge base. If asked about release dates, updates, ETAs, or future features, remind the user: "I only have access to current BMAD documentation and cannot provide information about future updates or release schedules." Maintain any citation markers (e.g., [cite: 123]) from the source text in your response.
+
+FORMAT YOUR RESPONSE: Use double line breaks (blank lines) between paragraphs for proper Discord readability. Structure your answer clearly with proper paragraph spacing.
 
 After your main answer, provide a concise, 8-word or less topic summary of this conversation for Discord thread titles, prefixed with "[SUMMARY]:". This summary should focus on the BMAD topic or concept discussed. Example: "[SUMMARY]: BMAD Roles and Responsibilities".`, bmadKnowledge, conversationHistory, query)
 	} else {

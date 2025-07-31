@@ -76,3 +76,29 @@ As a system administrator, I want the bot to periodically check and refresh the 
     * 2.6.6: The refresh interval, remote URL, and feature enable/disable are configurable via environment variables.
     * 2.6.7: The system logs refresh attempts, successes, failures, and change detections with appropriate severity levels.
     * 2.6.8: The bot continues to function normally if the refresh service fails, using the existing local knowledge base.
+
+## Story 2.7: Implement Ollama API Integration with Devstral Model
+
+As a system administrator, I want to integrate the Ollama API with the "devstral" model as an alternative AI service, so that I can evaluate local AI model capabilities for the BMAD knowledge bot while maintaining compatibility with the existing AIService interface, including proper testing and response format validation.
+
+* **Acceptance Criteria**:
+    * 2.7.1: The system includes a new OllamaAIService that implements the AIService interface and connects to a local Ollama server instance.
+    * 2.7.2: The Ollama service uses the "devstral" model specifically for all AI operations and validates model availability during initialization.
+    * 2.7.3: All existing AIService interface methods (QueryAI, QueryAIWithSummary, SummarizeQuery, QueryWithContext, SummarizeConversation, GetProviderID) are fully implemented with BMAD knowledge base integration.
+    * 2.7.4: The Ollama service includes proper error handling for network failures, model unavailability, and API response validation.
+    * 2.7.5: The service supports configurable Ollama server connection settings (host, port, timeout) via environment variables.
+    * 2.7.6: Response format validation ensures outputs match expected patterns and length constraints for Discord integration.
+    * 2.7.7: The implementation includes comprehensive unit and integration tests with mock Ollama responses.
+    * 2.7.8: The service can be selected as an AI provider through configuration without modifying existing bot logic.
+
+## Story 2.8: Support Bot Inclusion via Reply Mentions
+
+As a Discord user, I want to include the BMAD knowledge bot in a conversation by replying to a user's question with just the bot mention, so that the bot can provide BMAD-related answers in the context of the existing conversation thread without requiring the original user to directly mention the bot.
+
+* **Acceptance Criteria**:
+    * 2.8.1: The bot detects when it is mentioned in a reply to another user's message and processes the original message content as the query.
+    * 2.8.2: The bot creates appropriate threading behavior, either responding in the existing thread or creating a new thread based on the conversation context.
+    * 2.8.3: The bot maintains all existing BMAD knowledge base constraints and response formatting when processing reply-mentioned queries.
+    * 2.8.4: The system preserves existing mention detection logic and thread management for direct mentions and auto-response scenarios.
+    * 2.8.5: The reply mention feature works in both main channels and existing threads.
+    * 2.8.6: The bot provides clear attribution when responding to reply mentions, indicating which message it is addressing.

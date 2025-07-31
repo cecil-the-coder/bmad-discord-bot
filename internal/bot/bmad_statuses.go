@@ -36,7 +36,7 @@ func LoadBMADStatuses(filePath string, logger *slog.Logger) error {
 	for scanner.Scan() {
 		lineNum++
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -72,8 +72,8 @@ func LoadBMADStatuses(filePath string, logger *slog.Logger) error {
 	}
 
 	bmadStatuses = statuses
-	logger.Info("BMAD statuses loaded successfully", 
-		"file", filePath, 
+	logger.Info("BMAD statuses loaded successfully",
+		"file", filePath,
 		"count", len(bmadStatuses))
 
 	return nil

@@ -74,8 +74,20 @@ func (s *SQLiteStorageService) createTables(ctx context.Context) error {
 		UNIQUE(channel_id, thread_id)
 	);
 
+	CREATE TABLE IF NOT EXISTS thread_ownerships (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		thread_id TEXT NOT NULL UNIQUE,
+		original_user_id TEXT NOT NULL,
+		created_by TEXT NOT NULL,
+		creation_time INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_message_states_channel_thread ON message_states(channel_id, thread_id);
 	CREATE INDEX IF NOT EXISTS idx_message_states_timestamp ON message_states(last_seen_timestamp);
+	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_thread_id ON thread_ownerships(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_creation_time ON thread_ownerships(creation_time);
 	`
 
 	_, err := s.db.ExecContext(ctx, schema)
@@ -113,6 +125,29 @@ func (s *SQLiteStorageService) prepareStatements() error {
 			FROM message_states
 			WHERE last_seen_timestamp >= ?
 			ORDER BY last_seen_timestamp DESC
+		`,
+		"get_thread_ownership": `
+			SELECT id, thread_id, original_user_id, created_by, creation_time, created_at, updated_at
+			FROM thread_ownerships
+			WHERE thread_id = ?
+		`,
+		"insert_thread_ownership": `
+			INSERT INTO thread_ownerships (thread_id, original_user_id, created_by, creation_time, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`,
+		"update_thread_ownership": `
+			UPDATE thread_ownerships
+			SET original_user_id = ?, created_by = ?, creation_time = ?, updated_at = ?
+			WHERE thread_id = ?
+		`,
+		"get_all_thread_ownerships": `
+			SELECT id, thread_id, original_user_id, created_by, creation_time, created_at, updated_at
+			FROM thread_ownerships
+			ORDER BY creation_time DESC
+		`,
+		"cleanup_old_thread_ownerships": `
+			DELETE FROM thread_ownerships
+			WHERE creation_time < ?
 		`,
 	}
 
@@ -311,6 +346,148 @@ func (s *SQLiteStorageService) HealthCheck(ctx context.Context) error {
 	_, err = s.db.ExecContext(ctx, "SELECT COUNT(*) FROM message_states LIMIT 1")
 	if err != nil {
 		return fmt.Errorf("database health check query failed: %w", err)
+	}
+
+	return nil
+}
+
+// GetThreadOwnership retrieves thread ownership information for a thread
+func (s *SQLiteStorageService) GetThreadOwnership(ctx context.Context, threadID string) (*ThreadOwnership, error) {
+	stmt := s.prepared["get_thread_ownership"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_thread_ownership statement not prepared")
+	}
+
+	row := stmt.QueryRowContext(ctx, threadID)
+	
+	var ownership ThreadOwnership
+	err := row.Scan(
+		&ownership.ID,
+		&ownership.ThreadID,
+		&ownership.OriginalUserID,
+		&ownership.CreatedBy,
+		&ownership.CreationTime,
+		&ownership.CreatedAt,
+		&ownership.UpdatedAt,
+	)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil // Thread ownership not found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thread ownership: %w", err)
+	}
+
+	return &ownership, nil
+}
+
+// UpsertThreadOwnership creates or updates thread ownership information
+func (s *SQLiteStorageService) UpsertThreadOwnership(ctx context.Context, ownership *ThreadOwnership) error {
+	// Check if ownership exists
+	existing, err := s.GetThreadOwnership(ctx, ownership.ThreadID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing thread ownership: %w", err)
+	}
+
+	now := time.Now().Unix()
+
+	if existing == nil {
+		// Insert new ownership
+		stmt := s.prepared["insert_thread_ownership"]
+		if stmt == nil {
+			return fmt.Errorf("insert_thread_ownership statement not prepared")
+		}
+
+		ownership.CreatedAt = now
+		ownership.UpdatedAt = now
+
+		_, err = stmt.ExecContext(ctx,
+			ownership.ThreadID,
+			ownership.OriginalUserID,
+			ownership.CreatedBy,
+			ownership.CreationTime,
+			ownership.CreatedAt,
+			ownership.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert thread ownership: %w", err)
+		}
+	} else {
+		// Update existing ownership
+		stmt := s.prepared["update_thread_ownership"]
+		if stmt == nil {
+			return fmt.Errorf("update_thread_ownership statement not prepared")
+		}
+
+		ownership.UpdatedAt = now
+
+		_, err = stmt.ExecContext(ctx,
+			ownership.OriginalUserID,
+			ownership.CreatedBy,
+			ownership.CreationTime,
+			ownership.UpdatedAt,
+			ownership.ThreadID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update thread ownership: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// GetAllThreadOwnerships retrieves all thread ownership records
+func (s *SQLiteStorageService) GetAllThreadOwnerships(ctx context.Context) ([]*ThreadOwnership, error) {
+	stmt := s.prepared["get_all_thread_ownerships"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_all_thread_ownerships statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query thread ownerships: %w", err)
+	}
+	defer rows.Close()
+
+	var ownerships []*ThreadOwnership
+	for rows.Next() {
+		var ownership ThreadOwnership
+		err := rows.Scan(
+			&ownership.ID,
+			&ownership.ThreadID,
+			&ownership.OriginalUserID,
+			&ownership.CreatedBy,
+			&ownership.CreationTime,
+			&ownership.CreatedAt,
+			&ownership.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread ownership: %w", err)
+		}
+		ownerships = append(ownerships, &ownership)
+	}
+
+	return ownerships, rows.Err()
+}
+
+// CleanupOldThreadOwnerships removes old thread ownership records
+func (s *SQLiteStorageService) CleanupOldThreadOwnerships(ctx context.Context, maxAge int64) error {
+	stmt := s.prepared["cleanup_old_thread_ownerships"]
+	if stmt == nil {
+		return fmt.Errorf("cleanup_old_thread_ownerships statement not prepared")
+	}
+
+	cutoffTime := time.Now().Unix() - maxAge
+	
+	result, err := stmt.ExecContext(ctx, cutoffTime)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup old thread ownerships: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err == nil && rowsAffected > 0 {
+		// Log cleanup success, but don't fail if logging fails
+		_ = fmt.Sprintf("Cleaned up %d old thread ownership records", rowsAffected)
 	}
 
 	return nil

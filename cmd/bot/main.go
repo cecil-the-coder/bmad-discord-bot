@@ -89,6 +89,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate reply mention configuration
+	replyMentionConfig, err := loadReplyMentionConfig()
+	if err != nil {
+		slog.Error("Failed to load reply mention configuration", "error", err)
+		os.Exit(1)
+	}
+
+	// Read and validate reaction trigger configuration
+	reactionTriggerConfig, err := loadReactionTriggerConfig()
+	if err != nil {
+		slog.Error("Failed to load reaction trigger configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize storage service
 	storageService := storage.NewSQLiteStorageService(databasePath)
 	if err := storageService.Initialize(context.Background()); err != nil {
@@ -157,8 +171,18 @@ func main() {
 		slog.Info("Knowledge base refresh service disabled")
 	}
 
-	// Create bot handler with AI service and storage service
-	handler := bot.NewHandler(logger, aiService, storageService)
+	// Create bot handler with AI service, storage service, and full configuration
+	handler := bot.NewHandlerWithFullConfig(logger, aiService, storageService, 
+		bot.ReplyMentionConfig{
+			DeleteReplyMessage: replyMentionConfig.DeleteReplyMessage,
+		},
+		bot.ReactionTriggerConfig{
+			Enabled:           reactionTriggerConfig.Enabled,
+			TriggerEmoji:      reactionTriggerConfig.TriggerEmoji,
+			ApprovedUserIDs:   reactionTriggerConfig.ApprovedUserIDs,
+			ApprovedRoleNames: reactionTriggerConfig.ApprovedRoleNames,
+			RequireReaction:   reactionTriggerConfig.RequireReaction,
+		})
 
 	// Create Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -170,9 +194,10 @@ func main() {
 	// Add event handlers
 	dg.AddHandler(ready)
 	dg.AddHandler(handler.HandleMessageCreate)
+	dg.AddHandler(handler.HandleMessageReactionAdd)
 
-	// Set bot intents to include message content, mention parsing, and thread access
-	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsDirectMessages
+	// Set bot intents to include message content, mention parsing, thread access, and reactions
+	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMessageReactions
 
 	// Open connection to Discord
 	err = dg.Open()
@@ -203,7 +228,7 @@ func main() {
 		statusRotator = bot.NewStatusRotator(dg, logger)
 		statusRotator.SetInterval(bmadStatusInterval)
 		statusRotator.Start(ctx)
-		slog.Info("BMAD status rotation started", 
+		slog.Info("BMAD status rotation started",
 			"enabled", bmadStatusEnabled,
 			"interval", bmadStatusInterval,
 			"total_statuses", bot.GetStatusCount())
@@ -254,6 +279,14 @@ func main() {
 		slog.Warn("Message recovery completed with errors", "error", err)
 	} else {
 		slog.Info("Message recovery completed successfully")
+	}
+
+	// Perform thread ownership recovery for auto-response functionality
+	slog.Info("Starting thread ownership recovery process")
+	if err := handler.RecoverThreadOwnership(context.Background()); err != nil {
+		slog.Warn("Thread ownership recovery completed with errors", "error", err)
+	} else {
+		slog.Info("Thread ownership recovery completed successfully")
 	}
 
 	// Log thread-related capabilities
@@ -626,4 +659,120 @@ func loadBMADStatusConfig() (bool, time.Duration, error) {
 		"rotation_interval", interval)
 
 	return enabled, interval, nil
+}
+
+// ReplyMentionConfig holds configuration for reply mention behavior
+type ReplyMentionConfig struct {
+	DeleteReplyMessage bool // Whether to delete the reply message that mentioned the bot
+}
+
+// ReactionTriggerConfig holds configuration for reaction-based bot triggers
+type ReactionTriggerConfig struct {
+	Enabled           bool     // Whether reaction triggers are enabled
+	TriggerEmoji      string   // Emoji that triggers the bot (e.g., "❓" or "🤖")
+	ApprovedUserIDs   []string // List of user IDs authorized to use reaction triggers
+	ApprovedRoleNames []string // List of role names authorized to use reaction triggers
+	RequireReaction   bool     // Whether to add a confirmation reaction when processing
+	RemoveTriggerReaction bool // Whether to remove the trigger reaction after processing
+}
+
+// loadReplyMentionConfig loads reply mention configuration from environment variables
+func loadReplyMentionConfig() (ReplyMentionConfig, error) {
+	config := ReplyMentionConfig{}
+
+	// Load delete reply message flag (default: false for safer behavior)
+	deleteReplyStr := os.Getenv("REPLY_MENTION_DELETE_MESSAGE")
+	if deleteReplyStr == "" {
+		deleteReplyStr = "false" // Default value - safer to not delete by default
+	}
+
+	deleteReply, err := strconv.ParseBool(deleteReplyStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid REPLY_MENTION_DELETE_MESSAGE: %s", deleteReplyStr)
+	}
+
+	config.DeleteReplyMessage = deleteReply
+
+	slog.Info("Reply mention configuration loaded",
+		"delete_reply_message", deleteReply)
+
+	return config, nil
+}
+
+// loadReactionTriggerConfig loads reaction trigger configuration from environment variables
+func loadReactionTriggerConfig() (ReactionTriggerConfig, error) {
+	config := ReactionTriggerConfig{}
+
+	// Load enabled flag (default: false for safer behavior)
+	enabledStr := os.Getenv("REACTION_TRIGGER_ENABLED")
+	if enabledStr == "" {
+		enabledStr = "false" // Default value - safer to be disabled by default
+	}
+
+	enabled, err := strconv.ParseBool(enabledStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid REACTION_TRIGGER_ENABLED: %s", enabledStr)
+	}
+	config.Enabled = enabled
+
+	// Load trigger emoji (default: "❓")
+	triggerEmoji := os.Getenv("REACTION_TRIGGER_EMOJI")
+	if triggerEmoji == "" {
+		triggerEmoji = "❓" // Default value
+	}
+	config.TriggerEmoji = triggerEmoji
+
+	// Load approved user IDs (comma-separated list)
+	approvedUserIDsStr := os.Getenv("REACTION_TRIGGER_APPROVED_USER_IDS")
+	if approvedUserIDsStr != "" {
+		config.ApprovedUserIDs = strings.Split(approvedUserIDsStr, ",")
+		// Trim whitespace from each ID
+		for i, id := range config.ApprovedUserIDs {
+			config.ApprovedUserIDs[i] = strings.TrimSpace(id)
+		}
+	}
+
+	// Load approved role names (comma-separated list)
+	approvedRoleNamesStr := os.Getenv("REACTION_TRIGGER_APPROVED_ROLE_NAMES")
+	if approvedRoleNamesStr != "" {
+		config.ApprovedRoleNames = strings.Split(approvedRoleNamesStr, ",")
+		// Trim whitespace from each role name
+		for i, roleName := range config.ApprovedRoleNames {
+			config.ApprovedRoleNames[i] = strings.TrimSpace(roleName)
+		}
+	}
+
+	// Load require reaction flag (default: true)
+	requireReactionStr := os.Getenv("REACTION_TRIGGER_REQUIRE_REACTION")
+	if requireReactionStr == "" {
+		requireReactionStr = "true" // Default value
+	}
+
+	requireReaction, err := strconv.ParseBool(requireReactionStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid REACTION_TRIGGER_REQUIRE_REACTION: %s", requireReactionStr)
+	}
+	config.RequireReaction = requireReaction
+
+	// Load remove trigger reaction flag (default: false)
+	removeTriggerReactionStr := os.Getenv("REACTION_TRIGGER_REMOVE_REACTION")
+	if removeTriggerReactionStr == "" {
+		removeTriggerReactionStr = "false" // Default value - safer to leave reactions
+	}
+
+	removeTriggerReaction, err := strconv.ParseBool(removeTriggerReactionStr)
+	if err != nil {
+		return config, fmt.Errorf("invalid REACTION_TRIGGER_REMOVE_REACTION: %s", removeTriggerReactionStr)
+	}
+	config.RemoveTriggerReaction = removeTriggerReaction
+
+	slog.Info("Reaction trigger configuration loaded",
+		"enabled", enabled,
+		"trigger_emoji", triggerEmoji,
+		"approved_user_count", len(config.ApprovedUserIDs),
+		"approved_role_count", len(config.ApprovedRoleNames),
+		"require_reaction", requireReaction,
+		"remove_trigger_reaction", removeTriggerReaction)
+
+	return config, nil
 }
