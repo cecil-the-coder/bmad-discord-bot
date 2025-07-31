@@ -486,7 +486,7 @@ func (h *Handler) shouldAutoRespondInThread(s *discordgo.Session, threadID strin
 			return false
 		}
 	}
-	
+
 	h.logger.Info("Auto-response triggered for original user in bot thread",
 		"thread_id", threadID,
 		"user_id", authorID)
@@ -520,21 +520,21 @@ func (h *Handler) cleanupThreadOwnership(maxAge int64) {
 // sendResponseInChunks sends a response message, splitting it into chunks if it exceeds Discord's 2000 character limit
 func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, response string) error {
 	const maxDiscordMessageLength = 2000
-	
+
 	// If response fits in one message, send it directly
 	if len(response) <= maxDiscordMessageLength {
 		_, err := s.ChannelMessageSend(channelID, response)
 		return err
 	}
-	
+
 	h.logger.Info("Response exceeds Discord limit, chunking message",
 		"response_length", len(response),
 		"max_length", maxDiscordMessageLength,
 		"channel_id", channelID)
-	
+
 	// Split response into chunks at word boundaries to avoid breaking sentences
 	chunks := h.splitResponseIntoChunks(response, maxDiscordMessageLength)
-	
+
 	for i, chunk := range chunks {
 		// Add chunk indicator for multi-part messages
 		var messageContent string
@@ -543,7 +543,7 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 		} else {
 			messageContent = chunk
 		}
-		
+
 		if _, err := s.ChannelMessageSend(channelID, messageContent); err != nil {
 			h.logger.Error("Failed to send message chunk",
 				"error", err,
@@ -552,18 +552,18 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 				"channel_id", channelID)
 			return fmt.Errorf("failed to send chunk %d/%d: %w", i+1, len(chunks), err)
 		}
-		
+
 		h.logger.Info("Message chunk sent successfully",
 			"chunk", i+1,
 			"total_chunks", len(chunks),
 			"chunk_length", len(messageContent))
-		
+
 		// Add small delay between chunks to avoid rate limiting
 		if i < len(chunks)-1 {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -572,35 +572,35 @@ func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []stri
 	// Reserve space for chunk headers like "**[Part 1/X]**\n"
 	const headerReserve = 20
 	chunkSize := maxLength - headerReserve
-	
+
 	if len(response) <= chunkSize {
 		return []string{response}
 	}
-	
+
 	var chunks []string
 	remaining := response
-	
+
 	for len(remaining) > chunkSize {
 		// Find the last space within the chunk size to avoid breaking words
 		cutPoint := chunkSize
 		for cutPoint > 0 && remaining[cutPoint] != ' ' && remaining[cutPoint] != '\n' {
 			cutPoint--
 		}
-		
+
 		// If no space found in reasonable distance, cut at chunk boundary
 		if cutPoint < chunkSize/2 {
 			cutPoint = chunkSize
 		}
-		
+
 		chunks = append(chunks, strings.TrimSpace(remaining[:cutPoint]))
 		remaining = strings.TrimSpace(remaining[cutPoint:])
 	}
-	
+
 	// Add the remaining text as the final chunk
 	if len(remaining) > 0 {
 		chunks = append(chunks, remaining)
 	}
-	
+
 	return chunks
 }
 
@@ -733,7 +733,7 @@ func (h *Handler) recoverChannelMessages(s *discordgo.Session, state *storage.Me
 	var missedMessages []*discordgo.Message
 	for i := len(messages) - 1; i >= 0; i-- { // Reverse to chronological order
 		msg := messages[i]
-		
+
 		// Skip bot's own messages
 		if msg.Author.ID == s.State.User.ID {
 			continue
@@ -753,7 +753,7 @@ func (h *Handler) recoverChannelMessages(s *discordgo.Session, state *storage.Me
 	for _, msg := range missedMessages {
 		// Convert to MessageCreate event for processing
 		messageCreate := &discordgo.MessageCreate{Message: msg}
-		
+
 		h.logger.Info("Processing recovered message",
 			"message_id", msg.ID,
 			"author", msg.Author.Username,

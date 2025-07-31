@@ -16,13 +16,13 @@ import (
 
 // ModelState tracks the state of a specific Gemini model
 type ModelState struct {
-	Name              string
-	RateLimited       bool
-	RateLimitTime     time.Time
-	QuotaExhausted    bool
-	QuotaResetTime    time.Time
-	LastUsed          time.Time
-	Mutex             sync.RWMutex
+	Name           string
+	RateLimited    bool
+	RateLimitTime  time.Time
+	QuotaExhausted bool
+	QuotaResetTime time.Time
+	LastUsed       time.Time
+	Mutex          sync.RWMutex
 }
 
 // GeminiCLIService implements AIService interface using Google Gemini CLI
@@ -139,7 +139,7 @@ func (g *GeminiCLIService) testModel(modelName string) error {
 	// Test with a simple prompt to validate model availability
 	cmd := exec.CommandContext(ctx, g.cliPath, "--model", modelName, "-p", "test")
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		outputStr := string(output)
 		// Check for model-specific errors
@@ -367,7 +367,7 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 			g.logger.Warn("Model rate limit detected",
 				"model", model.Name,
 				"reset_time", resetTime.Format(time.RFC3339))
-			
+
 			// AC 2.3.3: Try fallback if primary failed
 			if model.Name == g.primaryModel.Name {
 				g.logger.Info("Attempting fallback model due to primary model rate limit",
@@ -375,7 +375,7 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 					"fallback_model", g.fallbackModel.Name)
 				return g.executeModelQuery(g.fallbackModel, prompt)
 			}
-			
+
 			return "", fmt.Errorf("model %s is rate limited. Service will be restored at %s UTC", model.Name, resetTime.Format("15:04"))
 		}
 
@@ -386,7 +386,7 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 			resetTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 
 			g.markModelQuotaExhausted(model.Name, resetTime)
-			
+
 			// AC 2.2.2: Update global quota state for compatibility
 			if g.rateLimiter != nil {
 				g.rateLimiter.SetQuotaExhausted(g.GetProviderID(), resetTime)
@@ -396,7 +396,7 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 					"reset_time", resetTime.Format(time.RFC3339),
 					"service_impact", "Model operations blocked until reset time.")
 			}
-			
+
 			// AC 2.3.3: Try fallback if primary failed
 			if model.Name == g.primaryModel.Name {
 				g.logger.Info("Attempting fallback model due to primary model quota exhaustion",
@@ -404,7 +404,7 @@ func (g *GeminiCLIService) executeModelQuery(model *ModelState, prompt string) (
 					"fallback_model", g.fallbackModel.Name)
 				return g.executeModelQuery(g.fallbackModel, prompt)
 			}
-			
+
 			return "", fmt.Errorf("daily quota exhausted for Gemini API. Service will be restored at %s UTC", resetTime.Format("15:04"))
 		}
 
@@ -442,7 +442,7 @@ func (g *GeminiCLIService) parseResponseWithSummary(response string) (string, st
 	// Look for the [SUMMARY]: delimiter
 	summaryMarker := "[SUMMARY]:"
 	summaryIndex := strings.LastIndex(response, summaryMarker)
-	
+
 	if summaryIndex == -1 {
 		// No summary found, return the full response as main answer with empty summary
 		g.logger.Warn("No summary marker found in response, summary extraction failed")
@@ -451,11 +451,11 @@ func (g *GeminiCLIService) parseResponseWithSummary(response string) (string, st
 
 	// Extract main answer (everything before [SUMMARY]:)
 	mainAnswer := strings.TrimSpace(response[:summaryIndex])
-	
+
 	// Extract summary (everything after [SUMMARY]:)
 	summaryStart := summaryIndex + len(summaryMarker)
 	summary := strings.TrimSpace(response[summaryStart:])
-	
+
 	// Validate summary length (Discord thread title limit is 100 characters)
 	if len(summary) > 100 {
 		g.logger.Warn("Summary too long, truncating",
@@ -463,7 +463,7 @@ func (g *GeminiCLIService) parseResponseWithSummary(response string) (string, st
 			"summary", summary)
 		summary = summary[:97] + "..."
 	}
-	
+
 	// Validate summary is not empty
 	if summary == "" {
 		g.logger.Warn("Empty summary extracted")
@@ -488,10 +488,10 @@ func (g *GeminiCLIService) cleanCitations(text string) string {
 	citationPattern := `\[cite:[^\]]*\]`
 	re := regexp.MustCompile(citationPattern)
 	cleaned := re.ReplaceAllString(text, "")
-	
+
 	// Clean up any double spaces that might be left after removing citations
 	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
-	
+
 	return strings.TrimSpace(cleaned)
 }
 
@@ -501,7 +501,7 @@ func (g *GeminiCLIService) isModelRateLimited(errMsg string) bool {
 	if g.isDailyQuotaExhausted(errMsg) {
 		return false
 	}
-	
+
 	rateLimitPatterns := []string{
 		"rate limit",
 		"Rate limit",
@@ -510,13 +510,13 @@ func (g *GeminiCLIService) isModelRateLimited(errMsg string) bool {
 		"throttling",
 		"Throttling",
 	}
-	
+
 	for _, pattern := range rateLimitPatterns {
 		if strings.Contains(errMsg, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -526,7 +526,7 @@ func (g *GeminiCLIService) isDailyQuotaExhausted(errMsg string) bool {
 	if !strings.Contains(errMsg, "429 Too Many Requests") {
 		return false
 	}
-	
+
 	// Check for quota exceeded pattern with 'per day' limit
 	dailyQuotaPattern := `Quota exceeded for quota metric '.*' and limit '.*per day.*'`
 	matched, err := regexp.MatchString(dailyQuotaPattern, errMsg)
@@ -534,7 +534,7 @@ func (g *GeminiCLIService) isDailyQuotaExhausted(errMsg string) bool {
 		g.logger.Warn("Error matching daily quota pattern", "error", err)
 		return false
 	}
-	
+
 	return matched
 }
 
@@ -559,7 +559,7 @@ func (g *GeminiCLIService) getCurrentModel() *ModelState {
 		return g.primaryModel
 	}
 
-	// Check if fallback model is available  
+	// Check if fallback model is available
 	g.fallbackModel.Mutex.RLock()
 	fallbackAvailable := !g.fallbackModel.RateLimited && !g.fallbackModel.QuotaExhausted
 	g.fallbackModel.Mutex.RUnlock()
@@ -598,7 +598,7 @@ func (g *GeminiCLIService) markModelRateLimited(modelName string, resetTime time
 
 	targetModel.RateLimited = true
 	targetModel.RateLimitTime = resetTime
-	
+
 	g.logger.Warn("Model marked as rate limited",
 		"model", modelName,
 		"reset_time", resetTime.Format(time.RFC3339))
@@ -624,7 +624,7 @@ func (g *GeminiCLIService) markModelQuotaExhausted(modelName string, resetTime t
 
 	targetModel.QuotaExhausted = true
 	targetModel.QuotaResetTime = resetTime
-	
+
 	g.logger.Error("Model marked as quota exhausted",
 		"model", modelName,
 		"reset_time", resetTime.Format(time.RFC3339))
@@ -633,7 +633,7 @@ func (g *GeminiCLIService) markModelQuotaExhausted(modelName string, resetTime t
 // checkAndRestoreModels checks if any models can be restored from rate limits
 func (g *GeminiCLIService) checkAndRestoreModels() {
 	now := time.Now()
-	
+
 	g.modelsMu.Lock()
 	defer g.modelsMu.Unlock()
 
@@ -731,7 +731,7 @@ func (g *GeminiCLIService) SummarizeQuery(query string) (string, error) {
 
 	// AC 2.3.3: Get the best available model
 	currentModel := g.getCurrentModel()
-	
+
 	// AC 2.3.6: Check if all models are unavailable
 	modelStatus := g.getModelStatus()
 	if modelStatus["primary"] != "Available" && modelStatus["fallback"] != "Available" {
@@ -846,7 +846,7 @@ func (g *GeminiCLIService) QueryWithContext(query string, conversationHistory st
 
 	// AC 2.3.3: Get the best available model
 	currentModel := g.getCurrentModel()
-	
+
 	// AC 2.3.6: Check if all models are unavailable
 	modelStatus := g.getModelStatus()
 	if modelStatus["primary"] != "Available" && modelStatus["fallback"] != "Available" {
@@ -934,7 +934,7 @@ func (g *GeminiCLIService) SummarizeConversation(messages []string) (string, err
 
 	// AC 2.3.3: Get the best available model
 	currentModel := g.getCurrentModel()
-	
+
 	// AC 2.3.6: Check if all models are unavailable
 	modelStatus := g.getModelStatus()
 	if modelStatus["primary"] != "Available" && modelStatus["fallback"] != "Available" {

@@ -49,7 +49,7 @@ func TestNewHTTPKnowledgeUpdater(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_FetchRemoteContent(t *testing.T) {
 	testContent := "# Test Knowledge Base\n\nThis is test content."
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(testContent))

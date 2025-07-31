@@ -176,7 +176,7 @@ func (s *SQLiteStorageService) UpsertMessageState(ctx context.Context, state *Me
 	checkStmt := s.prepared["check_exists"]
 	insertStmt := s.prepared["insert_state"]
 	updateStmt := s.prepared["update_state"]
-	
+
 	if checkStmt == nil || insertStmt == nil || updateStmt == nil {
 		return fmt.Errorf("required statements not prepared")
 	}
@@ -188,7 +188,7 @@ func (s *SQLiteStorageService) UpsertMessageState(ctx context.Context, state *Me
 	var existingID int64
 	var existingCreatedAt int64
 	err := checkStmt.QueryRowContext(ctx, state.ChannelID, state.ThreadID, state.ThreadID).Scan(&existingID, &existingCreatedAt)
-	
+
 	if err == sql.ErrNoRows {
 		// Record doesn't exist, insert new one
 		if state.CreatedAt == 0 {

@@ -46,3 +46,4 @@ bmad-knowledge-bot
 # Knowledge base files (should be included in Docker image)
 # Uncomment if you want to exclude from git
 # internal/knowledge/
+data

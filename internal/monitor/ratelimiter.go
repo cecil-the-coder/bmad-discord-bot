@@ -10,13 +10,13 @@ import (
 
 // ProviderRateLimitState represents the rate limiting state for a specific AI provider
 type ProviderRateLimitState struct {
-	ProviderID           string                 // e.g., "gemini", "openai", "claude"
-	TimeWindows          map[string][]time.Time // e.g., "minute" -> timestamps, "day" -> timestamps
-	Limits               map[string]int         // e.g., "minute" -> 60, "day" -> 1000
-	Thresholds           map[string]float64     // e.g., "warning" -> 0.75, "throttled" -> 1.0
-	DailyQuotaExhausted  bool                   // New: Flag for daily quota exhaustion
-	DailyQuotaResetTime  time.Time              // New: When the daily quota resets
-	Mutex                sync.RWMutex           // Read-write mutex for concurrent access
+	ProviderID          string                 // e.g., "gemini", "openai", "claude"
+	TimeWindows         map[string][]time.Time // e.g., "minute" -> timestamps, "day" -> timestamps
+	Limits              map[string]int         // e.g., "minute" -> 60, "day" -> 1000
+	Thresholds          map[string]float64     // e.g., "warning" -> 0.75, "throttled" -> 1.0
+	DailyQuotaExhausted bool                   // New: Flag for daily quota exhaustion
+	DailyQuotaResetTime time.Time              // New: When the daily quota resets
+	Mutex               sync.RWMutex           // Read-write mutex for concurrent access
 }
 
 // AIProviderRateLimiter defines the interface for provider-agnostic rate limiting

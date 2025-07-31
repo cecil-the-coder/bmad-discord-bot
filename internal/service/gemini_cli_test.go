@@ -40,9 +40,9 @@ func (m *mockRateLimiter) CleanupOldCalls(providerID string) {
 func (m *mockRateLimiter) GetProviderState(providerID string) (*monitor.ProviderRateLimitState, bool) {
 	// Return a mock state for testing
 	state := &monitor.ProviderRateLimitState{
-		ProviderID:              providerID,
-		DailyQuotaExhausted:     false,
-		DailyQuotaResetTime:     time.Time{},
+		ProviderID:          providerID,
+		DailyQuotaExhausted: false,
+		DailyQuotaResetTime: time.Time{},
 	}
 	return state, true
 }
@@ -380,9 +380,9 @@ type mockQuotaRateLimiter struct {
 
 func (m *mockQuotaRateLimiter) GetProviderState(providerID string) (*monitor.ProviderRateLimitState, bool) {
 	state := &monitor.ProviderRateLimitState{
-		ProviderID:              providerID,
-		DailyQuotaExhausted:     m.quotaExhausted,
-		DailyQuotaResetTime:     m.resetTime,
+		ProviderID:          providerID,
+		DailyQuotaExhausted: m.quotaExhausted,
+		DailyQuotaResetTime: m.resetTime,
 	}
 	return state, true
 }
@@ -580,9 +580,9 @@ func TestGeminiCLIService_QuotaExhaustedStatus(t *testing.T) {
 // Test daily quota pattern detection using integration approach
 func TestGeminiCLIService_QuotaPatternDetection(t *testing.T) {
 	testCases := []struct {
-		name          string
-		errorMessage  string
-		shouldDetect  bool
+		name         string
+		errorMessage string
+		shouldDetect bool
 	}{
 		{
 			name:         "Standard daily quota error",
@@ -600,7 +600,7 @@ func TestGeminiCLIService_QuotaPatternDetection(t *testing.T) {
 			shouldDetect: false,
 		},
 		{
-			name:         "Per hour limit - should not detect", 
+			name:         "Per hour limit - should not detect",
 			errorMessage: "429 Too Many Requests - Quota exceeded for quota metric 'requests' and limit '1000 per hour'",
 			shouldDetect: false,
 		},
@@ -673,11 +673,11 @@ exit 1
 
 	// Execute QueryAI to trigger quota detection
 	_, err = service.QueryAI("test query")
-	
+
 	// Verify the reset time was calculated correctly (should be next day at midnight UTC)
 	assert.True(t, mockRL.quotaExhausted)
 	assert.False(t, mockRL.resetTime.IsZero())
-	
+
 	// The reset time should be after now and should be at midnight UTC
 	now := time.Now().UTC()
 	assert.True(t, mockRL.resetTime.After(now))
@@ -693,53 +693,53 @@ func TestGeminiCLIService_ParseResponseWithSummary(t *testing.T) {
 	service, _ := setupTestServiceWithBMAD(t)
 
 	testCases := []struct {
-		name              string
-		response          string
-		expectedAnswer    string
-		expectedSummary   string
-		expectError       bool
+		name            string
+		response        string
+		expectedAnswer  string
+		expectedSummary string
+		expectError     bool
 	}{
 		{
-			name:              "Valid response with summary",
-			response:          "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]: BMAD Framework Overview",
-			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
-			expectedSummary:   "BMAD Framework Overview",
-			expectError:       false,
+			name:            "Valid response with summary",
+			response:        "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]: BMAD Framework Overview",
+			expectedAnswer:  "BMAD-METHOD is a framework for AI development.",
+			expectedSummary: "BMAD Framework Overview",
+			expectError:     false,
 		},
 		{
-			name:              "Response without summary marker",
-			response:          "BMAD-METHOD is a framework for AI development.",
-			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
-			expectedSummary:   "",
-			expectError:       false,
+			name:            "Response without summary marker",
+			response:        "BMAD-METHOD is a framework for AI development.",
+			expectedAnswer:  "BMAD-METHOD is a framework for AI development.",
+			expectedSummary: "",
+			expectError:     false,
 		},
 		{
-			name:              "Response with empty summary",
-			response:          "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]:",
-			expectedAnswer:    "BMAD-METHOD is a framework for AI development.",
-			expectedSummary:   "",
-			expectError:       false,
+			name:            "Response with empty summary",
+			response:        "BMAD-METHOD is a framework for AI development.\n\n[SUMMARY]:",
+			expectedAnswer:  "BMAD-METHOD is a framework for AI development.",
+			expectedSummary: "",
+			expectError:     false,
 		},
 		{
-			name:              "Response with long summary (should truncate)",
-			response:          "BMAD-METHOD is a framework.\n\n[SUMMARY]: This is a very long summary that exceeds the Discord 100 character limit and should be truncated properly",
-			expectedAnswer:    "BMAD-METHOD is a framework.",
-			expectedSummary:   "This is a very long summary that exceeds the Discord 100 character limit and should be truncated ...",
-			expectError:       false,
+			name:            "Response with long summary (should truncate)",
+			response:        "BMAD-METHOD is a framework.\n\n[SUMMARY]: This is a very long summary that exceeds the Discord 100 character limit and should be truncated properly",
+			expectedAnswer:  "BMAD-METHOD is a framework.",
+			expectedSummary: "This is a very long summary that exceeds the Discord 100 character limit and should be truncated ...",
+			expectError:     false,
 		},
 		{
-			name:              "Multiple summary markers (should use last one)",
-			response:          "First part [SUMMARY]: First summary\n\nSecond part [SUMMARY]: Second summary",
-			expectedAnswer:    "First part [SUMMARY]: First summary Second part",
-			expectedSummary:   "Second summary",
-			expectError:       false,
+			name:            "Multiple summary markers (should use last one)",
+			response:        "First part [SUMMARY]: First summary\n\nSecond part [SUMMARY]: Second summary",
+			expectedAnswer:  "First part [SUMMARY]: First summary Second part",
+			expectedSummary: "Second summary",
+			expectError:     false,
 		},
 		{
-			name:              "Empty response",
-			response:          "",
-			expectedAnswer:    "",
-			expectedSummary:   "",
-			expectError:       true,
+			name:            "Empty response",
+			response:        "",
+			expectedAnswer:  "",
+			expectedSummary: "",
+			expectError:     true,
 		},
 	}
 
@@ -845,7 +845,7 @@ func TestGeminiCLIService_BuildBMADPrompt_WithSummaryInstructions(t *testing.T) 
 	assert.Contains(t, prompt, "Test BMAD knowledge base content")
 	assert.Contains(t, prompt, "USER QUESTION: What is BMAD-METHOD?")
 	assert.Contains(t, prompt, "Answer ONLY based on the information provided in the BMAD knowledge base")
-	
+
 	// Verify the prompt includes summary instructions
 	assert.Contains(t, prompt, "After your main answer, provide a concise, 8-word or less topic summary")
 	assert.Contains(t, prompt, "prefixed with \"[SUMMARY]:\"")

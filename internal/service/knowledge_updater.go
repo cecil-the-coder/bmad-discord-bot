@@ -32,17 +32,17 @@ type RefreshStatus struct {
 }
 
 type HTTPKnowledgeUpdater struct {
-	remoteURL        string
-	localFilePath    string
-	refreshInterval  time.Duration
-	enabled          bool
-	httpClient       *http.Client
-	ticker           *time.Ticker
-	stopChan         chan struct{}
-	wg               sync.WaitGroup
-	mu               sync.RWMutex
-	status           RefreshStatus
-	logger           *slog.Logger
+	remoteURL       string
+	localFilePath   string
+	refreshInterval time.Duration
+	enabled         bool
+	httpClient      *http.Client
+	ticker          *time.Ticker
+	stopChan        chan struct{}
+	wg              sync.WaitGroup
+	mu              sync.RWMutex
+	status          RefreshStatus
+	logger          *slog.Logger
 }
 
 type Config struct {
@@ -81,7 +81,7 @@ func (h *HTTPKnowledgeUpdater) Start(ctx context.Context) error {
 		return nil
 	}
 
-	h.logger.Info("Starting knowledge base refresh service", 
+	h.logger.Info("Starting knowledge base refresh service",
 		slog.String("remote_url", h.remoteURL),
 		slog.String("local_file", h.localFilePath),
 		slog.Duration("interval", h.refreshInterval))
@@ -175,7 +175,7 @@ func (h *HTTPKnowledgeUpdater) fetchRemoteContent() (string, error) {
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(1<<attempt) * baseDelay
-			h.logger.Info("Retrying fetch after delay", 
+			h.logger.Info("Retrying fetch after delay",
 				slog.Int("attempt", attempt+1),
 				slog.Duration("delay", delay))
 			time.Sleep(delay)
@@ -183,7 +183,7 @@ func (h *HTTPKnowledgeUpdater) fetchRemoteContent() (string, error) {
 
 		resp, err := h.httpClient.Get(h.remoteURL)
 		if err != nil {
-			h.logger.Warn("HTTP request failed", 
+			h.logger.Warn("HTTP request failed",
 				slog.Int("attempt", attempt+1),
 				slog.Any("error", err))
 			if attempt == maxRetries-1 {
@@ -196,7 +196,7 @@ func (h *HTTPKnowledgeUpdater) fetchRemoteContent() (string, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			err := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-			h.logger.Warn("HTTP request returned error status", 
+			h.logger.Warn("HTTP request returned error status",
 				slog.Int("attempt", attempt+1),
 				slog.Int("status_code", resp.StatusCode))
 			if attempt == maxRetries-1 {
@@ -207,7 +207,7 @@ func (h *HTTPKnowledgeUpdater) fetchRemoteContent() (string, error) {
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			h.logger.Warn("Failed to read response body", 
+			h.logger.Warn("Failed to read response body",
 				slog.Int("attempt", attempt+1),
 				slog.Any("error", err))
 			if attempt == maxRetries-1 {
@@ -239,11 +239,11 @@ func (h *HTTPKnowledgeUpdater) readLocalContent() (string, error) {
 func (h *HTTPKnowledgeUpdater) contentChanged(localContent, remoteContent string) bool {
 	// Extract knowledge base content from local file (skip first line if it exists)
 	localKB := h.extractKnowledgeBase(localContent)
-	
+
 	// Compare content hashes
 	localHash := sha256.Sum256([]byte(localKB))
 	remoteHash := sha256.Sum256([]byte(remoteContent))
-	
+
 	return localHash != remoteHash
 }
 
@@ -251,12 +251,12 @@ func (h *HTTPKnowledgeUpdater) extractKnowledgeBase(content string) string {
 	if content == "" {
 		return ""
 	}
-	
+
 	lines := strings.Split(content, "\n")
 	if len(lines) <= 1 {
 		return ""
 	}
-	
+
 	// Return everything after the first line
 	return strings.Join(lines[1:], "\n")
 }
@@ -316,7 +316,7 @@ func (h *HTTPKnowledgeUpdater) updateLocalContent(remoteContent string) error {
 func (h *HTTPKnowledgeUpdater) updateStatus(err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	if err != nil {
 		h.status.LastError = err
 	} else {

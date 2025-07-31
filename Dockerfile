@@ -34,20 +34,19 @@ LABEL security.scan="required"
 RUN apk update && apk add --no-cache ca-certificates sqlite && \
     npm install -g @google/gemini-cli
 
-# Create non-root user
-RUN addgroup -S botuser && adduser -S -G botuser botuser
-
 # Copy the binary with proper ownership and permissions
-COPY --from=builder --chown=botuser:botuser /app/main /app/main
+COPY --from=builder --chown=node:node /app/main /app/main
 
-# Copy knowledge base files
-COPY --chown=botuser:botuser internal/knowledge /app/internal/knowledge
+# Copy knowledge base files  
+COPY --chown=node:node internal/knowledge /app/internal/knowledge
 
-# Create logs and data directories
-RUN mkdir -p /app/logs /app/data && chown -R botuser:botuser /app/logs /app/data
+# Create logs and data directories with proper permissions
+RUN mkdir -p /app/logs /app/data && \
+    chown -R node:node /app/logs /app/data && \
+    chmod -R 775 /app/logs /app/data
 
 # Set proper file permissions
-USER botuser
+USER node
 
 # Use non-root working directory
 WORKDIR /app

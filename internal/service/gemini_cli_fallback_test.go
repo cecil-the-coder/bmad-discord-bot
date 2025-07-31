@@ -15,7 +15,7 @@ func TestNewGeminiCLIService_ModelConfiguration(t *testing.T) {
 		// Clear environment variables
 		os.Unsetenv("GEMINI_PRIMARY_MODEL")
 		os.Unsetenv("GEMINI_FALLBACK_MODEL")
-		
+
 		tmpDir := t.TempDir()
 		bmadFile := tmpDir + "/bmad.md"
 		if err := os.WriteFile(bmadFile, []byte("test bmad content"), 0644); err != nil {
@@ -25,7 +25,7 @@ func TestNewGeminiCLIService_ModelConfiguration(t *testing.T) {
 		defer os.Unsetenv("BMAD_PROMPT_PATH")
 
 		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-		
+
 		// Use a mock CLI path that doesn't exist to skip validation
 		service := &GeminiCLIService{
 			cliPath:        "/mock/cli",
@@ -69,7 +69,7 @@ func TestNewGeminiCLIService_ModelConfiguration(t *testing.T) {
 		defer os.Unsetenv("BMAD_PROMPT_PATH")
 
 		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-		
+
 		// Use a mock CLI path that doesn't exist to skip validation
 		service := &GeminiCLIService{
 			cliPath:        "/mock/cli",
@@ -99,7 +99,7 @@ func TestNewGeminiCLIService_ModelConfiguration(t *testing.T) {
 
 func TestGeminiCLIService_GetCurrentModel(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	service := &GeminiCLIService{
 		logger: logger,
 		primaryModel: &ModelState{
@@ -163,7 +163,7 @@ func TestGeminiCLIService_GetCurrentModel(t *testing.T) {
 
 func TestGeminiCLIService_ModelStateManagement(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	service := &GeminiCLIService{
 		logger: logger,
 		primaryModel: &ModelState{
@@ -219,7 +219,7 @@ func TestGeminiCLIService_ModelStateManagement(t *testing.T) {
 
 func TestGeminiCLIService_ModelStatus(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	service := &GeminiCLIService{
 		logger: logger,
 		primaryModel: &ModelState{
@@ -278,7 +278,7 @@ func TestGeminiCLIService_ModelStatus(t *testing.T) {
 
 func TestGeminiCLIService_RateLimitDetection(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	service := &GeminiCLIService{
 		logger: logger,
 	}
@@ -310,18 +310,18 @@ func TestGeminiCLIService_RateLimitDetection(t *testing.T) {
 
 func TestGeminiCLIService_AllModelsUnavailable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	service := &GeminiCLIService{
 		logger: logger,
 		primaryModel: &ModelState{
-			Name:            "primary-model",
-			RateLimited:     true,
-			QuotaExhausted:  false,
+			Name:           "primary-model",
+			RateLimited:    true,
+			QuotaExhausted: false,
 		},
 		fallbackModel: &ModelState{
-			Name:            "fallback-model",
-			RateLimited:     false,
-			QuotaExhausted:  true,
+			Name:           "fallback-model",
+			RateLimited:    false,
+			QuotaExhausted: true,
 		},
 	}
 
@@ -344,7 +344,7 @@ func TestGeminiCLIService_AllModelsUnavailable(t *testing.T) {
 func TestGeminiCLIService_FallbackIntegration(t *testing.T) {
 	// Test the integration with existing rate limiting systems
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	
+
 	// Create a temporary directory for test files
 	tmpDir := t.TempDir()
 	bmadFile := tmpDir + "/bmad.md"

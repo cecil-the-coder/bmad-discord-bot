@@ -71,10 +71,10 @@ func (m *MockAIService) QueryAIWithSummary(query string) (string, string, error)
 		}
 		return response, "", nil
 	}
-	
+
 	// Default behavior: generate both response and summary
 	mainResponse := "Default mock response for: " + query
-	
+
 	// Generate a simple summary (first 3 words + "...")
 	words := strings.Fields(query)
 	summary := ""
@@ -85,7 +85,7 @@ func (m *MockAIService) QueryAIWithSummary(query string) (string, string, error)
 	} else {
 		summary = strings.Join(words[:3], " ") + "..."
 	}
-	
+
 	return mainResponse, summary, nil
 }
 
@@ -1293,11 +1293,11 @@ func TestHandler_MultiUserThreadDetection(t *testing.T) {
 func setupTestStorage(t *testing.T) *storage.SQLiteStorageService {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	
+
 	service := storage.NewSQLiteStorageService(dbPath)
 	err := service.Initialize(context.Background())
 	require.NoError(t, err)
-	
+
 	return service
 }
 
@@ -1319,7 +1319,7 @@ func TestHandler_MessageStatePersistence(t *testing.T) {
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
 	storageService := handler.storageService.(*storage.SQLiteStorageService)
-	
+
 	// Create a mock message
 	message := &discordgo.MessageCreate{
 		Message: &discordgo.Message{
@@ -1329,15 +1329,15 @@ func TestHandler_MessageStatePersistence(t *testing.T) {
 			Content:   "Test message",
 		},
 	}
-	
+
 	// Test message state recording
 	t.Run("records_message_state", func(t *testing.T) {
 		// Record message state
 		handler.recordMessageState(message, false)
-		
+
 		// Give async operation time to complete
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Verify state was persisted
 		ctx := context.Background()
 		state, err := storageService.GetMessageState(ctx, "channel456", nil)
@@ -1350,7 +1350,7 @@ func TestHandler_MessageStatePersistence(t *testing.T) {
 			t.Log("Message state not found - async operation may not have completed")
 		}
 	})
-	
+
 	t.Run("records_thread_message_state", func(t *testing.T) {
 		threadMessage := &discordgo.MessageCreate{
 			Message: &discordgo.Message{
@@ -1360,13 +1360,13 @@ func TestHandler_MessageStatePersistence(t *testing.T) {
 				Content:   "Thread message",
 			},
 		}
-		
+
 		// Record thread message state
 		handler.recordMessageState(threadMessage, true)
-		
+
 		// Give async operation time to complete
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Verify thread state was persisted
 		ctx := context.Background()
 		threadID := "thread789"
@@ -1389,16 +1389,16 @@ func TestHandler_MessageRecovery(t *testing.T) {
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
 	storageService := handler.storageService.(*storage.SQLiteStorageService)
-	
+
 	t.Run("skips_recovery_with_no_states", func(t *testing.T) {
 		// Test recovery with empty database
 		err := handler.RecoverMissedMessages(nil, 5)
 		assert.NoError(t, err)
 	})
-	
+
 	t.Run("skips_recovery_outside_window", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Insert old message state (outside 5-minute window)
 		oldState := &storage.MessageState{
 			ChannelID:         "channel123",
@@ -1408,16 +1408,16 @@ func TestHandler_MessageRecovery(t *testing.T) {
 		}
 		err := storageService.UpsertMessageState(ctx, oldState)
 		require.NoError(t, err)
-		
+
 		// Recovery should skip this old state
 		err = handler.RecoverMissedMessages(nil, 5)
 		assert.NoError(t, err) // Should complete without errors
 	})
-	
+
 	t.Run("handles_storage_unavailable", func(t *testing.T) {
 		// Create handler without storage service
 		handlerWithoutStorage := newTestHandler(logger, mockAI)
-		
+
 		// Should handle gracefully when storage is unavailable
 		err := handlerWithoutStorage.RecoverMissedMessages(nil, 5)
 		assert.NoError(t, err)
@@ -1428,10 +1428,10 @@ func TestHandler_MessageRecovery(t *testing.T) {
 func TestHandler_StorageUnavailable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
-	
+
 	// Create handler without storage service
 	handler := newTestHandler(logger, mockAI)
-	
+
 	// Create a mock message
 	message := &discordgo.MessageCreate{
 		Message: &discordgo.Message{
@@ -1441,14 +1441,14 @@ func TestHandler_StorageUnavailable(t *testing.T) {
 			Content:   "Test message",
 		},
 	}
-	
+
 	t.Run("handles_missing_storage_gracefully", func(t *testing.T) {
 		// Should not panic when storage is unavailable
 		assert.NotPanics(t, func() {
 			handler.recordMessageState(message, false)
 		})
 	})
-	
+
 	t.Run("recovery_with_no_storage", func(t *testing.T) {
 		// Should handle recovery gracefully without storage
 		err := handler.RecoverMissedMessages(nil, 5)
@@ -1460,17 +1460,17 @@ func TestHandler_StorageUnavailable(t *testing.T) {
 func TestHandler_StorageHealthCheck(t *testing.T) {
 	storageService := setupTestStorage(t)
 	defer storageService.Close()
-	
+
 	t.Run("storage_health_check_passes", func(t *testing.T) {
 		ctx := context.Background()
 		err := storageService.HealthCheck(ctx)
 		assert.NoError(t, err)
 	})
-	
+
 	t.Run("storage_health_check_fails_after_close", func(t *testing.T) {
 		tempStorage := setupTestStorage(t)
 		tempStorage.Close()
-		
+
 		ctx := context.Background()
 		err := tempStorage.HealthCheck(ctx)
 		assert.Error(t, err)
@@ -1483,16 +1483,16 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
 	storageService := handler.storageService.(*storage.SQLiteStorageService)
-	
+
 	botID := "bot123"
 	channelID := "channel456"
 	userID := "user789"
-	
+
 	// Set up mock AI response
 	query := "What is Docker?"
 	response := "Docker is a containerization platform."
 	mockAI.SetResponse(query, response)
-	
+
 	t.Run("complete_message_processing_with_storage", func(t *testing.T) {
 		// Create message mentioning the bot
 		message := &discordgo.MessageCreate{
@@ -1506,7 +1506,7 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 				},
 			},
 		}
-		
+
 		// Test core processing logic components
 		// 1. Verify mention detection
 		botMentioned := false
@@ -1517,17 +1517,17 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 			}
 		}
 		assert.True(t, botMentioned, "Bot should be detected as mentioned")
-		
+
 		// 2. Verify query extraction
 		extractedQuery := handler.extractQueryFromMention(message.Content, botID)
 		assert.Equal(t, query, extractedQuery, "Query should be extracted correctly")
-		
+
 		// 3. Test state persistence (simulate the recordMessageState call)
 		handler.recordMessageState(message, false)
-		
+
 		// Give async operation time to complete
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// 4. Verify state was persisted
 		ctx := context.Background()
 		state, err := storageService.GetMessageState(ctx, channelID, nil)
@@ -1538,7 +1538,7 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 		} else {
 			t.Log("Message state not found - async operation may not have completed")
 		}
-		
+
 		t.Logf("Complete workflow test successful:")
 		t.Logf("  - Bot mention detected: %v", botMentioned)
 		t.Logf("  - Query extracted: %q", extractedQuery)

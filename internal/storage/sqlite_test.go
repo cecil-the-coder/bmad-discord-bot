@@ -195,7 +195,7 @@ func TestSQLiteStorageService_GetMessageStatesWithinWindow(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().Unix()
-	
+
 	// Insert states with different timestamps
 	states := []*MessageState{
 		{
@@ -227,7 +227,7 @@ func TestSQLiteStorageService_GetMessageStatesWithinWindow(t *testing.T) {
 
 	// Should only get the recent ones
 	assert.Len(t, recentStates, 2)
-	
+
 	channelIDs := make([]string, len(recentStates))
 	for i, state := range recentStates {
 		channelIDs[i] = state.ChannelID
@@ -311,11 +311,11 @@ func TestSQLiteStorageService_ContextTimeout(t *testing.T) {
 func setupTestStorage(t *testing.T) *SQLiteStorageService {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	
+
 	service := NewSQLiteStorageService(dbPath)
 	err := service.Initialize(context.Background())
 	require.NoError(t, err)
-	
+
 	return service
 }
 
