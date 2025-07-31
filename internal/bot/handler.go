@@ -1,12 +1,14 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"bmad-knowledge-bot/internal/service"
+	"bmad-knowledge-bot/internal/storage"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -21,14 +23,16 @@ type ThreadOwnership struct {
 type Handler struct {
 	logger          *slog.Logger
 	aiService       service.AIService
+	storageService  storage.StorageService
 	threadOwnership map[string]*ThreadOwnership // threadID -> ownership info
 }
 
 // NewHandler creates a new bot event handler
-func NewHandler(logger *slog.Logger, aiService service.AIService) *Handler {
+func NewHandler(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService) *Handler {
 	return &Handler{
 		logger:          logger,
 		aiService:       aiService,
+		storageService:  storageService,
 		threadOwnership: make(map[string]*ThreadOwnership),
 	}
 }
@@ -114,6 +118,9 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 			"message_id", m.ID,
 			"bot_mentioned", botMentioned,
 			"auto_respond", shouldAutoRespond)
+
+		// Record message state before processing (AC 2.5.2)
+		h.recordMessageState(m, isInThread)
 
 		// Process the AI query and respond (pass thread context)
 		h.processAIQuery(s, m, queryText, isInThread)
@@ -595,4 +602,176 @@ func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []stri
 	}
 	
 	return chunks
+}
+
+// recordMessageState persists the last seen message state to the database
+func (h *Handler) recordMessageState(m *discordgo.MessageCreate, isInThread bool) {
+	if h.storageService == nil {
+		h.logger.Warn("Storage service not available, skipping message state persistence")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var threadID *string
+	if isInThread {
+		threadID = &m.ChannelID
+	}
+
+	// For threads, we need to get the parent channel ID
+	var channelID string
+	if isInThread {
+		// Try to get parent channel from thread ownership or default to channel ID
+		channelID = m.ChannelID // This will be the thread ID for threads
+		// We'll use the thread ID as both channel and thread for simplicity
+		threadID = &m.ChannelID
+		channelID = m.ChannelID // Use thread ID as identifier
+	} else {
+		channelID = m.ChannelID
+		threadID = nil
+	}
+
+	messageState := &storage.MessageState{
+		ChannelID:         channelID,
+		ThreadID:          threadID,
+		LastMessageID:     m.ID,
+		LastSeenTimestamp: time.Now().Unix(),
+	}
+
+	// Attempt to persist state asynchronously to avoid blocking message processing
+	go func() {
+		err := h.storageService.UpsertMessageState(ctx, messageState)
+		if err != nil {
+			h.logger.Error("Failed to persist message state",
+				"error", err,
+				"channel_id", channelID,
+				"thread_id", threadID,
+				"message_id", m.ID)
+		} else {
+			h.logger.Debug("Message state persisted successfully",
+				"channel_id", channelID,
+				"thread_id", threadID,
+				"message_id", m.ID)
+		}
+	}()
+}
+
+// RecoverMissedMessages retrieves and processes messages that were sent while the bot was offline
+func (h *Handler) RecoverMissedMessages(s *discordgo.Session, recoveryWindowMinutes int) error {
+	if h.storageService == nil {
+		h.logger.Warn("Storage service not available, skipping message recovery")
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get message states within the recovery window
+	windowDuration := time.Duration(recoveryWindowMinutes) * time.Minute
+	states, err := h.storageService.GetMessageStatesWithinWindow(ctx, windowDuration)
+	if err != nil {
+		h.logger.Error("Failed to get message states for recovery", "error", err)
+		return fmt.Errorf("failed to get message states: %w", err)
+	}
+
+	h.logger.Info("Starting message recovery",
+		"recovery_window_minutes", recoveryWindowMinutes,
+		"tracked_channels", len(states))
+
+	recoveredCount := 0
+	for _, state := range states {
+		count, err := h.recoverChannelMessages(s, state, windowDuration)
+		if err != nil {
+			h.logger.Error("Failed to recover messages for channel",
+				"error", err,
+				"channel_id", state.ChannelID,
+				"thread_id", state.ThreadID)
+			continue
+		}
+		recoveredCount += count
+	}
+
+	h.logger.Info("Message recovery completed",
+		"total_recovered", recoveredCount,
+		"channels_processed", len(states))
+
+	return nil
+}
+
+// recoverChannelMessages recovers missed messages for a specific channel/thread
+func (h *Handler) recoverChannelMessages(s *discordgo.Session, state *storage.MessageState, windowDuration time.Duration) (int, error) {
+	channelID := state.ChannelID
+	if state.ThreadID != nil {
+		channelID = *state.ThreadID
+	}
+
+	// Calculate time window
+	cutoffTime := time.Now().Add(-windowDuration)
+	lastSeenTime := time.Unix(state.LastSeenTimestamp, 0)
+
+	// Skip if last seen is outside recovery window
+	if lastSeenTime.Before(cutoffTime) {
+		h.logger.Info("Skipping recovery for channel outside window",
+			"channel_id", state.ChannelID,
+			"thread_id", state.ThreadID,
+			"last_seen", lastSeenTime,
+			"cutoff", cutoffTime)
+		return 0, nil
+	}
+
+	// Fetch recent messages from Discord
+	messages, err := s.ChannelMessages(channelID, 50, "", state.LastMessageID, "")
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch messages from Discord: %w", err)
+	}
+
+	// Filter messages that are:
+	// 1. After the last seen message
+	// 2. Within the recovery window
+	// 3. Not from the bot itself
+	var missedMessages []*discordgo.Message
+	for i := len(messages) - 1; i >= 0; i-- { // Reverse to chronological order
+		msg := messages[i]
+		
+		// Skip bot's own messages
+		if msg.Author.ID == s.State.User.ID {
+			continue
+		}
+
+		// Parse message timestamp
+		msgTime := msg.Timestamp
+
+		// Check if message is within recovery window and after last seen
+		if msgTime.After(lastSeenTime) && msgTime.After(cutoffTime) {
+			missedMessages = append(missedMessages, msg)
+		}
+	}
+
+	// Process missed messages
+	processedCount := 0
+	for _, msg := range missedMessages {
+		// Convert to MessageCreate event for processing
+		messageCreate := &discordgo.MessageCreate{Message: msg}
+		
+		h.logger.Info("Processing recovered message",
+			"message_id", msg.ID,
+			"author", msg.Author.Username,
+			"channel_id", channelID,
+			"content_length", len(msg.Content))
+
+		// Process the message through normal handler logic
+		h.HandleMessageCreate(s, messageCreate)
+		processedCount++
+
+		// Add delay to avoid rate limiting
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	h.logger.Info("Channel recovery completed",
+		"channel_id", state.ChannelID,
+		"thread_id", state.ThreadID,
+		"messages_processed", processedCount)
+
+	return processedCount, nil
 }

@@ -14,6 +14,7 @@ import (
 	"bmad-knowledge-bot/internal/bot"
 	"bmad-knowledge-bot/internal/monitor"
 	"bmad-knowledge-bot/internal/service"
+	"bmad-knowledge-bot/internal/storage"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -60,6 +61,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate database configuration
+	databasePath, recoveryWindowMinutes, err := loadDatabaseConfig()
+	if err != nil {
+		slog.Error("Failed to load database configuration", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize storage service
+	storageService := storage.NewSQLiteStorageService(databasePath)
+	if err := storageService.Initialize(context.Background()); err != nil {
+		slog.Error("Failed to initialize storage service", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := storageService.Close(); err != nil {
+			slog.Error("Error closing storage service", "error", err)
+		}
+	}()
+
+	slog.Info("Storage service initialized successfully", "database_path", databasePath)
+
 	// Initialize rate limit manager with provider configurations
 	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{rateLimitConfig})
 	slog.Info("Rate limit manager initialized",
@@ -84,8 +106,8 @@ func main() {
 		"cli_path", geminiCLIPath,
 		"provider", aiService.GetProviderID())
 
-	// Create bot handler with AI service
-	handler := bot.NewHandler(logger, aiService)
+	// Create bot handler with AI service and storage service
+	handler := bot.NewHandler(logger, aiService, storageService)
 
 	// Create Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -141,6 +163,14 @@ func main() {
 		}
 	} else {
 		slog.Info("Status management disabled by configuration")
+	}
+
+	// Perform message recovery for missed messages during downtime
+	slog.Info("Starting message recovery process", "recovery_window_minutes", recoveryWindowMinutes)
+	if err := handler.RecoverMissedMessages(dg, recoveryWindowMinutes); err != nil {
+		slog.Warn("Message recovery completed with errors", "error", err)
+	} else {
+		slog.Info("Message recovery completed successfully")
 	}
 
 	// Log thread-related capabilities
@@ -346,4 +376,34 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 		"username", event.User.Username,
 		"discriminator", event.User.Discriminator,
 		"status", "Online")
+}
+
+// loadDatabaseConfig loads database configuration from environment variables
+func loadDatabaseConfig() (string, int, error) {
+	// Load database path (default: "./data/bot_state.db")
+	databasePath := os.Getenv("DATABASE_PATH")
+	if databasePath == "" {
+		databasePath = "./data/bot_state.db" // Default value
+	}
+
+	// Load message recovery window in minutes (default: 5)
+	recoveryWindowStr := os.Getenv("MESSAGE_RECOVERY_WINDOW_MINUTES")
+	if recoveryWindowStr == "" {
+		recoveryWindowStr = "5" // Default value
+	}
+
+	recoveryWindowMinutes, err := strconv.Atoi(recoveryWindowStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid MESSAGE_RECOVERY_WINDOW_MINUTES: %s", recoveryWindowStr)
+	}
+
+	if recoveryWindowMinutes < 0 {
+		return "", 0, fmt.Errorf("MESSAGE_RECOVERY_WINDOW_MINUTES must be non-negative: %d", recoveryWindowMinutes)
+	}
+
+	slog.Info("Database configuration loaded",
+		"database_path", databasePath,
+		"recovery_window_minutes", recoveryWindowMinutes)
+
+	return databasePath, recoveryWindowMinutes, nil
 }

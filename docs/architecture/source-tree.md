@@ -14,8 +14,13 @@ bmad-knowledge-bot/
 │   ├── service/
 │   │   ├── ai_interface.go # The AIService interface definition
 │   │   └── gemini_cli.go   # The CLI implementation of the service
+│   ├── storage/            # Database operations and persistence layer
+│   │   ├── interface.go    # Storage interface definition
+│   │   └── sqlite.go       # SQLite implementation for message state persistence
 │   └── monitor/
 │       └── ratelimiter.go  # The rate limit monitoring service
+├── data/                   # Runtime data directory (auto-created)
+│   └── bot_state.db        # SQLite database for message state persistence
 ├── .env.example            # Template for environment variables
 ├── .gitignore
 ├── go.mod                  # Go module definition

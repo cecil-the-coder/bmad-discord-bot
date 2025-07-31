@@ -1,74 +1,101 @@
-# Create Document from Template Task
+# Create Document from Template (YAML Driven)
 
-## Purpose
+## ⚠️ CRITICAL EXECUTION NOTICE ⚠️
 
-- Generate documents from any specified template following embedded instructions from the perspective of the selected agent persona
+**THIS IS AN EXECUTABLE WORKFLOW - NOT REFERENCE MATERIAL**
 
-## Instructions
+When this task is invoked:
 
-### 1. Identify Template and Context
+1. **DISABLE ALL EFFICIENCY OPTIMIZATIONS** - This workflow requires full user interaction
+2. **MANDATORY STEP-BY-STEP EXECUTION** - Each section must be processed sequentially with user feedback
+3. **ELICITATION IS REQUIRED** - When `elicit: true`, you MUST use the 1-9 format and wait for user response
+4. **NO SHORTCUTS ALLOWED** - Complete documents cannot be created without following this workflow
 
-- Determine which template to use (user-provided or list available for selection to user)
+**VIOLATION INDICATOR:** If you create a complete document without user interaction, you have violated this workflow.
 
-  - Agent-specific templates are listed in the agent's dependencies under `templates`. For each template listed, consider it a document the agent can create. So if an agent has:
+## Critical: Template Discovery
 
-    @{example}
-    dependencies:
-    templates: - prd-tmpl - architecture-tmpl
-    @{/example}
+If a YAML Template has not been provided, list all templates from .bmad-core/templates or ask the user to provide another.
 
-    You would offer to create "PRD" and "Architecture" documents when the user asks what you can help with.
+## CRITICAL: Mandatory Elicitation Format
 
-- Gather all relevant inputs, or ask for them, or else rely on user providing necessary details to complete the document
-- Understand the document purpose and target audience
+**When `elicit: true`, this is a HARD STOP requiring user interaction:**
 
-### 2. Determine Interaction Mode
+**YOU MUST:**
 
-Confirm with the user their preferred interaction style:
+1. Present section content
+2. Provide detailed rationale (explain trade-offs, assumptions, decisions made)
+3. **STOP and present numbered options 1-9:**
+   - **Option 1:** Always "Proceed to next section"
+   - **Options 2-9:** Select 8 methods from data/elicitation-methods
+   - End with: "Select 1-9 or just type your question/feedback:"
+4. **WAIT FOR USER RESPONSE** - Do not proceed until user selects option or provides feedback
 
-- **Incremental:** Work through chunks of the document.
-- **YOLO Mode:** Draft complete document making reasonable assumptions in one shot. (Can be entered also after starting incremental by just typing /yolo)
+**WORKFLOW VIOLATION:** Creating content for elicit=true sections without user interaction violates this task.
 
-### 3. Execute Template
+**NEVER ask yes/no questions or use any other format.**
 
-- Load specified template from `templates#*` or the /templates directory
-- Follow ALL embedded LLM instructions within the template
-- Process template markup according to `utils#template-format` conventions
+## Processing Flow
 
-### 4. Template Processing Rules
+1. **Parse YAML template** - Load template metadata and sections
+2. **Set preferences** - Show current mode (Interactive), confirm output file
+3. **Process each section:**
+   - Skip if condition unmet
+   - Check agent permissions (owner/editors) - note if section is restricted to specific agents
+   - Draft content using section instruction
+   - Present content + detailed rationale
+   - **IF elicit: true** → MANDATORY 1-9 options format
+   - Save to file if possible
+4. **Continue until complete**
 
-#### CRITICAL: Never display template markup, LLM instructions, or examples to users
+## Detailed Rationale Requirements
 
-- Replace all {{placeholders}} with actual content
-- Execute all [[LLM: instructions]] internally
-- Process `<<REPEAT>>` sections as needed
-- Evaluate ^^CONDITION^^ blocks and include only if applicable
-- Use @{examples} for guidance but never output them
+When presenting section content, ALWAYS include rationale that explains:
 
-### 5. Content Generation
+- Trade-offs and choices made (what was chosen over alternatives and why)
+- Key assumptions made during drafting
+- Interesting or questionable decisions that need user attention
+- Areas that might need validation
 
-- **Incremental Mode**: Present each major section for review before proceeding
-- **YOLO Mode**: Generate all sections, then review complete document with user
-- Apply any elicitation protocols specified in template
-- Incorporate user feedback and iterate as needed
+## Elicitation Results Flow
 
-### 6. Validation
+After user selects elicitation method (2-9):
 
-If template specifies a checklist:
+1. Execute method from data/elicitation-methods
+2. Present results with insights
+3. Offer options:
+   - **1. Apply changes and update section**
+   - **2. Return to elicitation menu**
+   - **3. Ask any questions or engage further with this elicitation**
 
-- Run the appropriate checklist against completed document
-- Document completion status for each item
-- Address any deficiencies found
-- Present validation summary to user
+## Agent Permissions
 
-### 7. Final Presentation
+When processing sections with agent permission fields:
 
-- Present clean, formatted content only
-- Ensure all sections are complete
-- DO NOT truncate or summarize content
-- Begin directly with document content (no preamble)
-- Include any handoff prompts specified in template
+- **owner**: Note which agent role initially creates/populates the section
+- **editors**: List agent roles allowed to modify the section
+- **readonly**: Mark sections that cannot be modified after creation
 
-## Important Notes
+**For sections with restricted access:**
 
-- Template markup is for AI processing only - never expose to users
+- Include a note in the generated document indicating the responsible agent
+- Example: "_(This section is owned by dev-agent and can only be modified by dev-agent)_"
+
+## YOLO Mode
+
+User can type `#yolo` to toggle to YOLO mode (process all sections at once).
+
+## CRITICAL REMINDERS
+
+**❌ NEVER:**
+
+- Ask yes/no questions for elicitation
+- Use any format other than 1-9 numbered options
+- Create new elicitation methods
+
+**✅ ALWAYS:**
+
+- Use exact 1-9 format when elicit: true
+- Select options 2-9 from data/elicitation-methods only
+- Provide detailed rationale explaining decisions
+- End with "Select 1-9 or just type your question/feedback:"

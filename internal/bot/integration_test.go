@@ -246,7 +246,7 @@ func TestMentionToReplyWorkflow(t *testing.T) {
 	mockAI.SetResponse("test query", "Mock AI response for test query")
 
 	// Create bot handler with mock AI service
-	handler := NewHandler(logger, mockAI)
+	handler := newTestHandler(logger, mockAI)
 
 	// Create context with timeout for the entire test
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -344,7 +344,7 @@ func TestThreadCreationWorkflow(t *testing.T) {
 	mockAI.SetResponse("summary:What is Go programming?", "Go programming")
 
 	// Create bot handler with mock AI service
-	handler := NewHandler(logger, mockAI)
+	handler := newTestHandler(logger, mockAI)
 
 	// Create context with timeout for the entire test
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

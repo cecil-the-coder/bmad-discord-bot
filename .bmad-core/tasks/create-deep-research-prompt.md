@@ -14,77 +14,66 @@ Generate well-structured research prompts that:
 
 ## Research Type Selection
 
-[[LLM: First, help the user select the most appropriate research focus based on their needs and any input documents they've provided.]]
+CRITICAL: First, help the user select the most appropriate research focus based on their needs and any input documents they've provided.
 
 ### 1. Research Focus Options
 
 Present these numbered options to the user:
 
 1. **Product Validation Research**
-
    - Validate product hypotheses and market fit
    - Test assumptions about user needs and solutions
    - Assess technical and business feasibility
    - Identify risks and mitigation strategies
 
 2. **Market Opportunity Research**
-
    - Analyze market size and growth potential
    - Identify market segments and dynamics
    - Assess market entry strategies
    - Evaluate timing and market readiness
 
 3. **User & Customer Research**
-
    - Deep dive into user personas and behaviors
    - Understand jobs-to-be-done and pain points
    - Map customer journeys and touchpoints
    - Analyze willingness to pay and value perception
 
 4. **Competitive Intelligence Research**
-
    - Detailed competitor analysis and positioning
    - Feature and capability comparisons
    - Business model and strategy analysis
    - Identify competitive advantages and gaps
 
 5. **Technology & Innovation Research**
-
    - Assess technology trends and possibilities
    - Evaluate technical approaches and architectures
    - Identify emerging technologies and disruptions
    - Analyze build vs. buy vs. partner options
 
 6. **Industry & Ecosystem Research**
-
    - Map industry value chains and dynamics
    - Identify key players and relationships
    - Analyze regulatory and compliance factors
    - Understand partnership opportunities
 
 7. **Strategic Options Research**
-
    - Evaluate different strategic directions
    - Assess business model alternatives
    - Analyze go-to-market strategies
    - Consider expansion and scaling paths
 
 8. **Risk & Feasibility Research**
-
    - Identify and assess various risk factors
    - Evaluate implementation challenges
    - Analyze resource requirements
    - Consider regulatory and legal implications
 
 9. **Custom Research Focus**
-   [[LLM: Allow user to define their own specific research focus.]]
    - User-defined research objectives
    - Specialized domain investigation
    - Cross-functional research needs
 
 ### 2. Input Processing
-
-[[LLM: Based on the selected research type and any provided inputs (project brief, brainstorming results, etc.), extract relevant context and constraints.]]
 
 **If Project Brief provided:**
 
@@ -118,11 +107,11 @@ Present these numbered options to the user:
 
 ### 3. Research Prompt Structure
 
-[[LLM: Based on the selected research type and context, collaboratively develop a comprehensive research prompt with these components.]]
+CRITICAL: collaboratively develop a comprehensive research prompt with these components.
 
 #### A. Research Objectives
 
-[[LLM: Work with the user to articulate clear, specific objectives for the research.]]
+CRITICAL: collaborate with the user to articulate clear, specific objectives for the research.
 
 - Primary research goal and purpose
 - Key decisions the research will inform
@@ -131,7 +120,7 @@ Present these numbered options to the user:
 
 #### B. Research Questions
 
-[[LLM: Develop specific, actionable research questions organized by theme.]]
+CRITICAL: collaborate with the user to develop specific, actionable research questions organized by theme.
 
 **Core Questions:**
 
@@ -146,8 +135,6 @@ Present these numbered options to the user:
 - Future-looking considerations
 
 #### C. Research Methodology
-
-[[LLM: Specify appropriate research methods based on the type and objectives.]]
 
 **Data Collection Methods:**
 
@@ -165,8 +152,6 @@ Present these numbered options to the user:
 
 #### D. Output Requirements
 
-[[LLM: Define how research findings should be structured and presented.]]
-
 **Format Specifications:**
 
 - Executive summary requirements
@@ -182,8 +167,6 @@ Present these numbered options to the user:
 - Risk and uncertainty documentation
 
 ### 4. Prompt Generation
-
-[[LLM: Synthesize all elements into a comprehensive, ready-to-use research prompt.]]
 
 **Research Prompt Template:**
 
@@ -253,16 +236,12 @@ Present these numbered options to the user:
 
 ### 5. Review and Refinement
 
-[[LLM: Present the draft research prompt for user review and refinement.]]
-
 1. **Present Complete Prompt**
-
    - Show the full research prompt
    - Explain key elements and rationale
    - Highlight any assumptions made
 
 2. **Gather Feedback**
-
    - Are the objectives clear and correct?
    - Do the questions address all concerns?
    - Is the scope appropriate?
@@ -275,8 +254,6 @@ Present these numbered options to the user:
    - Clarify ambiguities
 
 ### 6. Next Steps Guidance
-
-[[LLM: Provide clear guidance on how to use the research prompt.]]
 
 **Execution Options:**
 

@@ -3,8 +3,8 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install security updates and build dependencies
-RUN apk update && apk upgrade && apk add --no-cache git
+# Install security updates and build dependencies including SQLite
+RUN apk update && apk upgrade && apk add --no-cache git gcc musl-dev sqlite-dev
 
 # Copy go mod and sum files
 COPY go.mod go.sum ./
@@ -15,14 +15,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application with security flags
-RUN CGO_ENABLED=0 GOOS=linux go build \
+# Build the application with CGO enabled for SQLite support
+RUN CGO_ENABLED=1 GOOS=linux go build \
     -a -installsuffix cgo \
-    -ldflags='-w -s -extldflags "-static"' \
+    -ldflags='-w -s' \
     -o main cmd/bot/main.go
 
-# Final stage - use Node.js slim for Gemini CLI support
-FROM node:22-slim
+# Final stage - use Node.js Alpine for musl compatibility
+FROM node:22-alpine
 
 # Add labels for container metadata
 LABEL maintainer="BMAD Knowledge Bot Team"
@@ -30,13 +30,12 @@ LABEL description="Discord bot for knowledge management"
 LABEL version="1.0"
 LABEL security.scan="required"
 
-# Install CA certificates and Gemini CLI
-RUN apt-get update && apt-get install -y ca-certificates && \
-    npm install -g @google/gemini-cli && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install CA certificates, SQLite runtime, and Gemini CLI
+RUN apk update && apk add --no-cache ca-certificates sqlite && \
+    npm install -g @google/gemini-cli
 
 # Create non-root user
-RUN groupadd -r botuser && useradd -r -g botuser botuser
+RUN addgroup -S botuser && adduser -S -G botuser botuser
 
 # Copy the binary with proper ownership and permissions
 COPY --from=builder --chown=botuser:botuser /app/main /app/main
@@ -44,8 +43,8 @@ COPY --from=builder --chown=botuser:botuser /app/main /app/main
 # Copy knowledge base files
 COPY --chown=botuser:botuser internal/knowledge /app/internal/knowledge
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R botuser:botuser /app/logs
+# Create logs and data directories
+RUN mkdir -p /app/logs /app/data && chown -R botuser:botuser /app/logs /app/data
 
 # Set proper file permissions
 USER botuser

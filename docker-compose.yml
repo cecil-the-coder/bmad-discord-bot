@@ -19,6 +19,8 @@ services:
       - /home/micknugget/.gemini:/home/botuser/.gemini:rw
       # Optional: Mount logs directory for persistent logging
       - ./logs:/app/logs:rw
+      # Mount data directory for SQLite database persistence
+      - ./data:/app/data:rw
     
     # Security settings
     security_opt:
