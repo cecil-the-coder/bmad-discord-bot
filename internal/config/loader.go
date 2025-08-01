@@ -154,8 +154,6 @@ func (m *ConfigurationMigrator) MigrateEnvironmentVariables(ctx context.Context)
 		ValueType   string
 	}{
 		// Rate limiting configuration
-		{"AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE", "rate_limiting", "Gemini API rate limit per minute", "int"},
-		{"AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY", "rate_limiting", "Gemini API rate limit per day", "int"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE", "rate_limiting", "Ollama API rate limit per minute", "int"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY", "rate_limiting", "Ollama API rate limit per day", "int"},
 
@@ -167,8 +165,6 @@ func (m *ConfigurationMigrator) MigrateEnvironmentVariables(ctx context.Context)
 		// AI service configuration
 		{"OLLAMA_HOST", "ai_services", "Ollama service host address", "string"},
 		{"OLLAMA_MODEL", "ai_services", "Default Ollama model to use", "string"},
-		{"GEMINI_PRIMARY_MODEL", "ai_services", "Primary Gemini model", "string"},
-		{"GEMINI_FALLBACK_MODEL", "ai_services", "Fallback Gemini model", "string"},
 
 		// System configuration
 		{"BOT_STATUS_UPDATE_INTERVAL", "system", "Interval for bot status updates", "duration"},
@@ -222,8 +218,6 @@ func (m *ConfigurationMigrator) SeedDefaultConfigurations(ctx context.Context) e
 		Description string
 	}{
 		// Default rate limits
-		{"AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE", "30", "int", "rate_limiting", "Default Gemini API rate limit per minute"},
-		{"AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY", "1000", "int", "rate_limiting", "Default Gemini API rate limit per day"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE", "60", "int", "rate_limiting", "Default Ollama API rate limit per minute"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY", "2000", "int", "rate_limiting", "Default Ollama API rate limit per day"},
 
@@ -235,8 +229,6 @@ func (m *ConfigurationMigrator) SeedDefaultConfigurations(ctx context.Context) e
 		// Default AI service configuration
 		{"OLLAMA_HOST", "http://localhost:11434", "string", "ai_services", "Default Ollama service host"},
 		{"OLLAMA_MODEL", "llama2", "string", "ai_services", "Default Ollama model"},
-		{"GEMINI_PRIMARY_MODEL", "gemini-pro", "string", "ai_services", "Default primary Gemini model"},
-		{"GEMINI_FALLBACK_MODEL", "gemini-pro", "string", "ai_services", "Default fallback Gemini model"},
 
 		// Default system configuration
 		{"BOT_STATUS_UPDATE_INTERVAL", "5m", "duration", "system", "Default bot status update interval"},

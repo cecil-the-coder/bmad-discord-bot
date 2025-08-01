@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -115,55 +114,6 @@ func TestValidateToken(t *testing.T) {
 	}
 }
 
-func TestValidateGeminiCLIPath(t *testing.T) {
-	// Create a temporary file for testing
-	tmpDir := t.TempDir()
-	validPath := filepath.Join(tmpDir, "test-gemini")
-
-	// Create the test file
-	if err := os.WriteFile(validPath, []byte("#!/bin/bash\necho test"), 0755); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	tests := []struct {
-		name        string
-		cliPath     string
-		expectError bool
-	}{
-		{
-			name:        "empty CLI path",
-			cliPath:     "",
-			expectError: true,
-		},
-		{
-			name:        "non-existent CLI path",
-			cliPath:     "/non/existent/path/gemini-cli",
-			expectError: true,
-		},
-		{
-			name:        "valid CLI path",
-			cliPath:     validPath,
-			expectError: false,
-		},
-		{
-			name:        "existing file (this test binary)",
-			cliPath:     os.Args[0],
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateGeminiCLIPath(tt.cliPath)
-			if tt.expectError && err == nil {
-				t.Error("expected error but got none")
-			}
-			if !tt.expectError && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
 
 func TestHealthCheckFlag(t *testing.T) {
 	// Test that health check flag would be recognized

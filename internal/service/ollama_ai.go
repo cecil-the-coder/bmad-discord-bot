@@ -1329,7 +1329,7 @@ func (o *OllamaAIService) LogQualityReport() {
 	case metrics.AverageOverallScore >= 0.6:
 		assessment = "FAIR - Model has some issues, monitoring recommended"
 	case metrics.AverageOverallScore >= 0.5:
-		assessment = "POOR - Model struggling with BMAD knowledge, consider switching to Gemini"
+		assessment = "POOR - Model struggling with BMAD knowledge, consider alternative AI provider"
 	default:
 		assessment = "CRITICAL - Model performing poorly, immediate attention required"
 	}

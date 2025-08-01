@@ -15,3 +15,4 @@ This table represents the definitive technology selection for the project.
 | **Database (Cloud-Native)** | MySQL | 8.0+ | Cloud-Native Message State Persistence | External database service for cloud-native deployments with horizontal scaling capabilities. |
 | **Database Driver (SQLite)** | go-sqlite3 | v1.14.x | SQLite Go Driver | CGO-based SQLite driver for Go applications. |
 | **Database Driver (MySQL)** | go-sql-driver/mysql | v1.9.x | MySQL Go Driver | Pure Go MySQL driver for cloud-native database connectivity. |
+| **AI Provider** | Ollama API | Latest | AI Language Model Service | HTTP-based API service providing access to local language models (default: devstral). Supports extensible AIService interface architecture for future provider integrations. |

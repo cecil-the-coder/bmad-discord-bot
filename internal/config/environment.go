@@ -12,15 +12,14 @@ import (
 
 // SecureConfigKeys defines configuration keys that must remain in environment variables for security reasons
 var SecureConfigKeys = map[string]bool{
-	"BOT_TOKEN":       true,
-	"MYSQL_USERNAME":  true,
-	"MYSQL_PASSWORD":  true,
-	"MYSQL_HOST":      true,
-	"MYSQL_PORT":      true,
-	"MYSQL_DATABASE":  true,
-	"MYSQL_TIMEOUT":   true,
-	"GEMINI_CLI_PATH": true,
-	"DATABASE_TYPE":   true, // Controls whether to use SQLite or MySQL
+	"BOT_TOKEN":      true,
+	"MYSQL_USERNAME": true,
+	"MYSQL_PASSWORD": true,
+	"MYSQL_HOST":     true,
+	"MYSQL_PORT":     true,
+	"MYSQL_DATABASE": true,
+	"MYSQL_TIMEOUT":  true,
+	"DATABASE_TYPE":  true, // Controls whether to use SQLite or MySQL
 }
 
 // HybridConfigService implements ConfigService with database-first loading and environment variable fallback
@@ -253,7 +252,7 @@ func (s *HybridConfigService) matchesCategory(key, category string) bool {
 	case "features":
 		return strings.HasSuffix(key, "_ENABLED")
 	case "ai_services":
-		return strings.HasPrefix(key, "OLLAMA_") || strings.HasPrefix(key, "GEMINI_") || strings.Contains(key, "AI_PROVIDER")
+		return strings.HasPrefix(key, "OLLAMA_") || strings.Contains(key, "AI_PROVIDER")
 	case "system":
 		return strings.Contains(key, "TIMEOUT") || strings.Contains(key, "INTERVAL")
 	case "monitoring":

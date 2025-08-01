@@ -13,8 +13,6 @@ services:
     
     # Volume mounts
     volumes:
-      # Mount local Gemini config directory to container's botuser home
-      - /home/micknugget/.gemini:/home/botuser/.gemini:rw
       # Optional: Mount logs directory for persistent logging
       - ./logs:/app/logs:rw
       # Mount data directory for SQLite database persistence (when using SQLite)
@@ -27,7 +25,7 @@ services:
     # Security settings
     security_opt:
       - no-new-privileges:true
-    read_only: false  # Set to false to allow Gemini CLI to write config files
+    read_only: false  # Set to false to allow database and log file writes
     
     # Resource limits
     deploy:

@@ -30,9 +30,8 @@ LABEL description="Discord bot for knowledge management"
 LABEL version="1.0"
 LABEL security.scan="required"
 
-# Install CA certificates, SQLite runtime, and Gemini CLI
-RUN apk update && apk add --no-cache ca-certificates sqlite && \
-    npm install -g @google/gemini-cli
+# Install CA certificates and SQLite runtime
+RUN apk update && apk add --no-cache ca-certificates sqlite
 
 # Copy the binary with proper ownership and permissions
 COPY --from=builder --chown=node:node /app/main /app/main

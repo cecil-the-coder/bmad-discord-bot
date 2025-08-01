@@ -44,23 +44,16 @@ func main() {
 	// Read AI provider selection from environment variable
 	aiProvider := os.Getenv("AI_PROVIDER")
 	if aiProvider == "" {
-		aiProvider = "gemini" // Default to Gemini
+		aiProvider = "ollama" // Default to Ollama
 	}
 
 	// Validate AI provider selection
-	if aiProvider != "gemini" && aiProvider != "ollama" {
-		slog.Error("Invalid AI provider", "provider", aiProvider, "supported", []string{"gemini", "ollama"})
+	if aiProvider != "ollama" {
+		slog.Error("Invalid AI provider", "provider", aiProvider, "supported", []string{"ollama"})
 		os.Exit(1)
 	}
 
-	// Validate provider-specific requirements
-	if aiProvider == "gemini" {
-		geminiCLIPath := os.Getenv("GEMINI_CLI_PATH")
-		if err := validateGeminiCLIPath(geminiCLIPath); err != nil {
-			slog.Error("Gemini CLI validation failed", "error", err)
-			os.Exit(1)
-		}
-	}
+	// No provider-specific requirements for Ollama
 
 	// Read and validate rate limiting configuration
 	rateLimitConfig, err := loadRateLimitConfig(aiProvider)
@@ -202,32 +195,15 @@ func main() {
 		"provider", rateLimitConfig.ProviderID,
 		"limits", rateLimitConfig.Limits)
 
-	// Initialize AI service based on provider selection
-	var aiService service.AIService
-	switch aiProvider {
-	case "gemini":
-		geminiCLIPath := os.Getenv("GEMINI_CLI_PATH")
-		geminiService, err := service.NewGeminiCLIService(geminiCLIPath, logger)
-		if err != nil {
-			slog.Error("Failed to initialize Gemini AI service", "error", err)
-			os.Exit(1)
-		}
-		geminiService.SetRateLimiter(rateLimitManager)
-		aiService = geminiService
-		slog.Info("Gemini AI service initialized successfully",
-			"cli_path", geminiCLIPath,
-			"provider", aiService.GetProviderID())
-	case "ollama":
-		ollamaService, err := service.NewOllamaAIService(logger)
-		if err != nil {
-			slog.Error("Failed to initialize Ollama AI service", "error", err)
-			os.Exit(1)
-		}
-		ollamaService.SetRateLimiter(rateLimitManager)
-		aiService = ollamaService
-		slog.Info("Ollama AI service initialized successfully",
-			"provider", aiService.GetProviderID())
+	// Initialize AI service (Ollama only)
+	aiService, err := service.NewOllamaAIService(logger)
+	if err != nil {
+		slog.Error("Failed to initialize Ollama AI service", "error", err)
+		os.Exit(1)
 	}
+	aiService.SetRateLimiter(rateLimitManager)
+	slog.Info("Ollama AI service initialized successfully",
+		"provider", aiService.GetProviderID())
 
 	slog.Info("Rate limiter configured for AI service", "provider", aiService.GetProviderID())
 
@@ -455,13 +431,8 @@ func loadRateLimitConfig(aiProvider string) (monitor.ProviderConfig, error) {
 		Thresholds: make(map[string]float64),
 	}
 
-	// Load rate limit per minute with provider-specific or generic environment variables
-	var perMinuteStr string
-	if aiProvider == "gemini" {
-		perMinuteStr = os.Getenv("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE")
-	} else if aiProvider == "ollama" {
-		perMinuteStr = os.Getenv("AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE")
-	}
+	// Load rate limit per minute for Ollama
+	perMinuteStr := os.Getenv("AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE")
 	// Fallback to generic rate limit setting
 	if perMinuteStr == "" {
 		perMinuteStr = os.Getenv("AI_PROVIDER_RATE_LIMIT_PER_MINUTE")
@@ -478,13 +449,8 @@ func loadRateLimitConfig(aiProvider string) (monitor.ProviderConfig, error) {
 	}
 	config.Limits["minute"] = perMinute
 
-	// Load rate limit per day with provider-specific or generic environment variables
-	var perDayStr string
-	if aiProvider == "gemini" {
-		perDayStr = os.Getenv("AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY")
-	} else if aiProvider == "ollama" {
-		perDayStr = os.Getenv("AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY")
-	}
+	// Load rate limit per day for Ollama
+	perDayStr := os.Getenv("AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY")
 	// Fallback to generic rate limit setting
 	if perDayStr == "" {
 		perDayStr = os.Getenv("AI_PROVIDER_RATE_LIMIT_PER_DAY")
@@ -501,13 +467,8 @@ func loadRateLimitConfig(aiProvider string) (monitor.ProviderConfig, error) {
 	}
 	config.Limits["day"] = perDay
 
-	// Load warning threshold with provider-specific or generic environment variables
-	var warningThresholdStr string
-	if aiProvider == "gemini" {
-		warningThresholdStr = os.Getenv("AI_PROVIDER_GEMINI_WARNING_THRESHOLD")
-	} else if aiProvider == "ollama" {
-		warningThresholdStr = os.Getenv("AI_PROVIDER_OLLAMA_WARNING_THRESHOLD")
-	}
+	// Load warning threshold for Ollama
+	warningThresholdStr := os.Getenv("AI_PROVIDER_OLLAMA_WARNING_THRESHOLD")
 	// Fallback to generic threshold setting
 	if warningThresholdStr == "" {
 		warningThresholdStr = os.Getenv("AI_PROVIDER_WARNING_THRESHOLD")
@@ -524,13 +485,8 @@ func loadRateLimitConfig(aiProvider string) (monitor.ProviderConfig, error) {
 	}
 	config.Thresholds["warning"] = warningThreshold
 
-	// Load throttled threshold with provider-specific or generic environment variables
-	var throttledThresholdStr string
-	if aiProvider == "gemini" {
-		throttledThresholdStr = os.Getenv("AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD")
-	} else if aiProvider == "ollama" {
-		throttledThresholdStr = os.Getenv("AI_PROVIDER_OLLAMA_THROTTLED_THRESHOLD")
-	}
+	// Load throttled threshold for Ollama
+	throttledThresholdStr := os.Getenv("AI_PROVIDER_OLLAMA_THROTTLED_THRESHOLD")
 	// Fallback to generic threshold setting
 	if throttledThresholdStr == "" {
 		throttledThresholdStr = os.Getenv("AI_PROVIDER_THROTTLED_THRESHOLD")
@@ -596,20 +552,6 @@ func loadStatusConfig() (bool, time.Duration, error) {
 		"update_interval", interval)
 
 	return enabled, interval, nil
-}
-
-// validateGeminiCLIPath validates the Gemini CLI path and accessibility
-func validateGeminiCLIPath(cliPath string) error {
-	if cliPath == "" {
-		return fmt.Errorf("GEMINI_CLI_PATH environment variable is required")
-	}
-
-	// Check if the file exists and is accessible
-	if _, err := os.Stat(cliPath); os.IsNotExist(err) {
-		return fmt.Errorf("gemini CLI not found at path: %s", cliPath)
-	}
-
-	return nil
 }
 
 // ready event handler - called when bot connects and is ready
@@ -938,15 +880,8 @@ func loadRateLimitConfigFromService(aiProvider string, configService config.Conf
 		Thresholds: make(map[string]float64),
 	}
 
-	// Load rate limit per minute with provider-specific configuration
-	var perMinuteKey string
-	if aiProvider == "gemini" {
-		perMinuteKey = "AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE"
-	} else if aiProvider == "ollama" {
-		perMinuteKey = "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE"
-	} else {
-		perMinuteKey = "AI_PROVIDER_RATE_LIMIT_PER_MINUTE"
-	}
+	// Load rate limit per minute for Ollama
+	perMinuteKey := "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE"
 
 	perMinute := configService.GetConfigIntWithDefault(ctx, perMinuteKey, 60)
 	if perMinute <= 0 {
@@ -954,15 +889,8 @@ func loadRateLimitConfigFromService(aiProvider string, configService config.Conf
 	}
 	config.Limits["minute"] = perMinute
 
-	// Load rate limit per day with provider-specific configuration
-	var perDayKey string
-	if aiProvider == "gemini" {
-		perDayKey = "AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY"
-	} else if aiProvider == "ollama" {
-		perDayKey = "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY"
-	} else {
-		perDayKey = "AI_PROVIDER_RATE_LIMIT_PER_DAY"
-	}
+	// Load rate limit per day for Ollama
+	perDayKey := "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY"
 
 	perDay := configService.GetConfigIntWithDefault(ctx, perDayKey, 1000)
 	if perDay <= 0 {
@@ -970,15 +898,8 @@ func loadRateLimitConfigFromService(aiProvider string, configService config.Conf
 	}
 	config.Limits["day"] = perDay
 
-	// Load warning threshold with provider-specific configuration
-	var warningThresholdKey string
-	if aiProvider == "gemini" {
-		warningThresholdKey = "AI_PROVIDER_GEMINI_WARNING_THRESHOLD"
-	} else if aiProvider == "ollama" {
-		warningThresholdKey = "AI_PROVIDER_OLLAMA_WARNING_THRESHOLD"
-	} else {
-		warningThresholdKey = "AI_PROVIDER_WARNING_THRESHOLD"
-	}
+	// Load warning threshold for Ollama
+	warningThresholdKey := "AI_PROVIDER_OLLAMA_WARNING_THRESHOLD"
 
 	warningThresholdStr := configService.GetConfigWithDefault(ctx, warningThresholdKey, "0.75")
 	warningThreshold, err := strconv.ParseFloat(warningThresholdStr, 64)
@@ -990,15 +911,8 @@ func loadRateLimitConfigFromService(aiProvider string, configService config.Conf
 	}
 	config.Thresholds["warning"] = warningThreshold
 
-	// Load throttled threshold with provider-specific configuration
-	var throttledThresholdKey string
-	if aiProvider == "gemini" {
-		throttledThresholdKey = "AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD"
-	} else if aiProvider == "ollama" {
-		throttledThresholdKey = "AI_PROVIDER_OLLAMA_THROTTLED_THRESHOLD"
-	} else {
-		throttledThresholdKey = "AI_PROVIDER_THROTTLED_THRESHOLD"
-	}
+	// Load throttled threshold for Ollama
+	throttledThresholdKey := "AI_PROVIDER_OLLAMA_THROTTLED_THRESHOLD"
 
 	throttledThresholdStr := configService.GetConfigWithDefault(ctx, throttledThresholdKey, "1.0")
 	throttledThreshold, err := strconv.ParseFloat(throttledThresholdStr, 64)

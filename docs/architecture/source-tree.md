@@ -13,7 +13,7 @@ bmad-knowledge-bot/
 │   │   └── session.go
 │   ├── service/
 │   │   ├── ai_interface.go # The AIService interface definition
-│   │   └── gemini_cli.go   # The CLI implementation of the service
+│   │   └── ollama_ai.go    # The Ollama API implementation of the AIService
 │   ├── storage/            # Database operations and persistence layer
 │   │   ├── interface.go    # Storage interface definition
 │   │   └── sqlite.go       # SQLite implementation for message state persistence

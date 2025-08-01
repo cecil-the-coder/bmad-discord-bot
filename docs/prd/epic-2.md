@@ -116,3 +116,31 @@ As a system administrator, I want to migrate the bot's data persistence from SQL
     * 2.9.6: Connection pooling and proper connection management are implemented for production reliability and performance.
     * 2.9.7: The MySQL integration maintains backward compatibility with existing storage interface contracts.
     * 2.9.8: Comprehensive error handling for database connectivity issues, including graceful degradation when database is unavailable.
+
+## Story 2.10: Move Configuration Values to MySQL Database
+
+As a system administrator, I want to move non-sensitive configuration values from environment variables into the MySQL database, so that configuration can be dynamically updated without restarting the application and managed centrally in cloud-native deployments.
+
+* **Acceptance Criteria**:
+    * 2.10.1: The system creates a new `configurations` table in MySQL to store configuration key-value pairs with proper data types, categories, and timestamps.
+    * 2.10.2: Non-sensitive configuration values (rate limits, feature flags, AI model preferences, timeouts) are moved from environment variables to database storage.
+    * 2.10.3: Sensitive configuration values (BOT_TOKEN, database credentials, API keys) remain in environment variables for security.
+    * 2.10.4: The system implements a ConfigService interface with database-first loading and environment variable fallback.
+    * 2.10.5: Configuration can be hot-reloaded from the database without requiring application restart.
+    * 2.10.6: Database configuration changes are validated before being applied to prevent application errors.
+    * 2.10.7: The system includes migration utilities to transfer existing environment variable values to the database on first startup.
+    * 2.10.8: Comprehensive error handling ensures the application gracefully falls back to environment variables if database configuration is unavailable.
+
+## Story 2.11: Remove Gemini AI Support
+
+As a system administrator, I want to remove Gemini AI support from the application while preserving the AIService middleware interface, so that the bot operates exclusively with Ollama while maintaining the flexibility to integrate other AI/LLM providers in the future.
+
+* **Acceptance Criteria**:
+    * 2.11.1: All Gemini-specific implementation files (gemini_cli.go, gemini_cli_test.go, gemini_cli_fallback_test.go) are removed from the codebase.
+    * 2.11.2: The AIService interface remains unchanged to preserve middleware architecture for future AI provider integrations.
+    * 2.11.3: The main application configuration is updated to use Ollama as the default and only AI provider.
+    * 2.11.4: All Gemini-related environment variables and configuration options are removed from documentation and example files.
+    * 2.11.5: The application startup logic removes Gemini provider validation and initialization while maintaining provider selection architecture.
+    * 2.11.6: All Gemini-related dependencies are removed from go.mod and build configuration.
+    * 2.11.7: Documentation is updated to reflect Ollama-only operation while noting the extensible architecture for future providers.
+    * 2.11.8: The codebase maintains all existing functionality with Ollama as the sole AI provider, ensuring no regressions in bot behavior.
