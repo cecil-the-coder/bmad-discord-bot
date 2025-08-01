@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bmad-knowledge-bot/internal/bot"
+	"bmad-knowledge-bot/internal/config"
 	"bmad-knowledge-bot/internal/monitor"
 	"bmad-knowledge-bot/internal/service"
 	"bmad-knowledge-bot/internal/storage"
@@ -68,12 +69,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read and validate status management configuration
-	statusEnabled, statusInterval, err := loadStatusConfig()
-	if err != nil {
-		slog.Error("Failed to load status configuration", "error", err)
-		os.Exit(1)
-	}
+	// Placeholder for status configuration - will be loaded after ConfigService
+	var statusEnabled bool
+	var statusInterval time.Duration
 
 	// Read and validate database configuration
 	databaseType, databasePath, recoveryWindowMinutes, err := loadDatabaseConfig()
@@ -82,12 +80,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read and validate knowledge base refresh configuration
-	kbConfig, err := loadKnowledgeBaseConfig()
-	if err != nil {
-		slog.Error("Failed to load knowledge base configuration", "error", err)
-		os.Exit(1)
-	}
+	// Placeholder for configuration service - will be initialized after storage service
+	var kbConfig *service.Config
 
 	// Read and validate reply mention configuration
 	replyMentionConfig, err := loadReplyMentionConfig()
@@ -132,6 +126,75 @@ func main() {
 	}()
 
 	slog.Info("Storage service initialized successfully", "type", databaseType)
+
+	// Initialize configuration service with database backend and environment fallback
+	configService := config.NewHybridConfigService(storageService)
+	if err := configService.Initialize(context.Background()); err != nil {
+		slog.Warn("Failed to initialize database configuration service, falling back to environment variables only", "error", err)
+	} else {
+		slog.Info("Configuration service initialized successfully with database backend")
+	}
+	defer func() {
+		if err := configService.Close(); err != nil {
+			slog.Error("Error closing configuration service", "error", err)
+		}
+	}()
+
+	// Initialize configuration loader and migrator
+	configLoader := config.NewConfigurationLoader(configService)
+	if err := configLoader.Initialize(context.Background()); err != nil {
+		slog.Error("Failed to initialize configuration loader", "error", err)
+		os.Exit(1)
+	}
+
+	// Run configuration migration on first startup
+	migrator := config.NewConfigurationMigrator(configService)
+	if err := migrator.MigrateEnvironmentVariables(context.Background()); err != nil {
+		slog.Warn("Configuration migration completed with warnings", "error", err)
+	} else {
+		slog.Info("Configuration migration completed successfully")
+	}
+
+	// Seed default configurations
+	if err := migrator.SeedDefaultConfigurations(context.Background()); err != nil {
+		slog.Warn("Configuration seeding completed with warnings", "error", err)
+	} else {
+		slog.Info("Configuration seeding completed successfully")
+	}
+
+	// Start configuration auto-reload
+	if err := configLoader.StartAutoReloadWithServiceNotification(1 * time.Minute); err != nil {
+		slog.Warn("Failed to start configuration auto-reload", "error", err)
+	} else {
+		slog.Info("Configuration auto-reload started", "interval", "1m")
+	}
+
+	// Update rate limiting configuration to use ConfigService
+	rateLimitConfig, err = loadRateLimitConfigFromService(aiProvider, configService)
+	if err != nil {
+		slog.Error("Failed to load rate limit configuration from service", "error", err)
+		os.Exit(1)
+	}
+
+	// Load knowledge base configuration using ConfigService
+	kbConfig, err = loadKnowledgeBaseConfigFromService(configService)
+	if err != nil {
+		slog.Error("Failed to load knowledge base configuration from service", "error", err)
+		os.Exit(1)
+	}
+
+	// Load status configuration using ConfigService
+	statusEnabled = configService.GetConfigBoolWithDefault(context.Background(), "BOT_STATUS_UPDATE_ENABLED", true)
+	statusIntervalStr := configService.GetConfigWithDefault(context.Background(), "BOT_STATUS_UPDATE_INTERVAL", "30s")
+	statusInterval, err = time.ParseDuration(statusIntervalStr)
+	if err != nil {
+		slog.Error("Failed to parse bot status update interval", "error", err, "value", statusIntervalStr)
+		os.Exit(1)
+	}
+	if statusInterval < time.Second {
+		slog.Error("Bot status update interval too short", "interval", statusInterval, "minimum", "1s")
+		os.Exit(1)
+	}
 
 	// Initialize rate limit manager with provider configurations
 	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{rateLimitConfig})
@@ -231,10 +294,16 @@ func main() {
 		slog.Info("BMAD statuses loaded successfully", "count", bot.GetStatusCount())
 	}
 
-	// Read BMAD status rotation configuration
-	bmadStatusEnabled, bmadStatusInterval, err := loadBMADStatusConfig()
+	// Read BMAD status rotation configuration using ConfigService
+	bmadStatusEnabled := configService.GetConfigBoolWithDefault(context.Background(), "BMAD_STATUS_ROTATION_ENABLED", true)
+	bmadStatusIntervalStr := configService.GetConfigWithDefault(context.Background(), "BMAD_STATUS_ROTATION_INTERVAL", "5m")
+	bmadStatusInterval, err := time.ParseDuration(bmadStatusIntervalStr)
 	if err != nil {
-		slog.Error("Failed to load BMAD status configuration", "error", err)
+		slog.Error("Failed to parse BMAD status rotation interval", "error", err, "value", bmadStatusIntervalStr)
+		os.Exit(1)
+	}
+	if bmadStatusInterval < 30*time.Second {
+		slog.Error("BMAD status rotation interval too short", "interval", bmadStatusInterval, "minimum", "30s")
 		os.Exit(1)
 	}
 
@@ -856,6 +925,140 @@ func loadReactionTriggerConfig() (ReactionTriggerConfig, error) {
 		"approved_role_count", len(config.ApprovedRoleNames),
 		"require_reaction", requireReaction,
 		"remove_trigger_reaction", removeTriggerReaction)
+
+	return config, nil
+}
+
+// loadRateLimitConfigFromService loads rate limiting configuration using ConfigService
+func loadRateLimitConfigFromService(aiProvider string, configService config.ConfigService) (monitor.ProviderConfig, error) {
+	ctx := context.Background()
+	config := monitor.ProviderConfig{
+		ProviderID: aiProvider,
+		Limits:     make(map[string]int),
+		Thresholds: make(map[string]float64),
+	}
+
+	// Load rate limit per minute with provider-specific configuration
+	var perMinuteKey string
+	if aiProvider == "gemini" {
+		perMinuteKey = "AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE"
+	} else if aiProvider == "ollama" {
+		perMinuteKey = "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE"
+	} else {
+		perMinuteKey = "AI_PROVIDER_RATE_LIMIT_PER_MINUTE"
+	}
+
+	perMinute := configService.GetConfigIntWithDefault(ctx, perMinuteKey, 60)
+	if perMinute <= 0 {
+		return config, fmt.Errorf("rate limit per minute must be positive for provider %s: %d", aiProvider, perMinute)
+	}
+	config.Limits["minute"] = perMinute
+
+	// Load rate limit per day with provider-specific configuration
+	var perDayKey string
+	if aiProvider == "gemini" {
+		perDayKey = "AI_PROVIDER_GEMINI_RATE_LIMIT_PER_DAY"
+	} else if aiProvider == "ollama" {
+		perDayKey = "AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY"
+	} else {
+		perDayKey = "AI_PROVIDER_RATE_LIMIT_PER_DAY"
+	}
+
+	perDay := configService.GetConfigIntWithDefault(ctx, perDayKey, 1000)
+	if perDay <= 0 {
+		return config, fmt.Errorf("rate limit per day must be positive for provider %s: %d", aiProvider, perDay)
+	}
+	config.Limits["day"] = perDay
+
+	// Load warning threshold with provider-specific configuration
+	var warningThresholdKey string
+	if aiProvider == "gemini" {
+		warningThresholdKey = "AI_PROVIDER_GEMINI_WARNING_THRESHOLD"
+	} else if aiProvider == "ollama" {
+		warningThresholdKey = "AI_PROVIDER_OLLAMA_WARNING_THRESHOLD"
+	} else {
+		warningThresholdKey = "AI_PROVIDER_WARNING_THRESHOLD"
+	}
+
+	warningThresholdStr := configService.GetConfigWithDefault(ctx, warningThresholdKey, "0.75")
+	warningThreshold, err := strconv.ParseFloat(warningThresholdStr, 64)
+	if err != nil {
+		return config, fmt.Errorf("invalid warning threshold for provider %s: %s", aiProvider, warningThresholdStr)
+	}
+	if warningThreshold <= 0 || warningThreshold >= 1 {
+		return config, fmt.Errorf("warning threshold must be between 0 and 1 for provider %s: %f", aiProvider, warningThreshold)
+	}
+	config.Thresholds["warning"] = warningThreshold
+
+	// Load throttled threshold with provider-specific configuration
+	var throttledThresholdKey string
+	if aiProvider == "gemini" {
+		throttledThresholdKey = "AI_PROVIDER_GEMINI_THROTTLED_THRESHOLD"
+	} else if aiProvider == "ollama" {
+		throttledThresholdKey = "AI_PROVIDER_OLLAMA_THROTTLED_THRESHOLD"
+	} else {
+		throttledThresholdKey = "AI_PROVIDER_THROTTLED_THRESHOLD"
+	}
+
+	throttledThresholdStr := configService.GetConfigWithDefault(ctx, throttledThresholdKey, "1.0")
+	throttledThreshold, err := strconv.ParseFloat(throttledThresholdStr, 64)
+	if err != nil {
+		return config, fmt.Errorf("invalid throttled threshold for provider %s: %s", aiProvider, throttledThresholdStr)
+	}
+	if throttledThreshold <= 0 || throttledThreshold > 1 {
+		return config, fmt.Errorf("throttled threshold must be between 0 and 1 for provider %s: %f", aiProvider, throttledThreshold)
+	}
+	config.Thresholds["throttled"] = throttledThreshold
+
+	// Validate that warning threshold is less than throttled threshold
+	if config.Thresholds["warning"] >= config.Thresholds["throttled"] {
+		return config, fmt.Errorf("warning threshold (%f) must be less than throttled threshold (%f)",
+			config.Thresholds["warning"], config.Thresholds["throttled"])
+	}
+
+	slog.Info("Rate limit configuration loaded from ConfigService",
+		"provider", config.ProviderID,
+		"minute_limit", config.Limits["minute"],
+		"day_limit", config.Limits["day"],
+		"warning_threshold", config.Thresholds["warning"],
+		"throttled_threshold", config.Thresholds["throttled"])
+
+	return config, nil
+}
+
+// loadKnowledgeBaseConfigFromService loads knowledge base configuration using ConfigService
+func loadKnowledgeBaseConfigFromService(configService config.ConfigService) (*service.Config, error) {
+	ctx := context.Background()
+
+	// Load enabled flag
+	enabled := configService.GetConfigBoolWithDefault(ctx, "BMAD_KB_REFRESH_ENABLED", true)
+
+	// Load refresh interval in hours
+	intervalHours := configService.GetConfigIntWithDefault(ctx, "BMAD_KB_REFRESH_INTERVAL_HOURS", 6)
+	if intervalHours <= 0 {
+		return nil, fmt.Errorf("BMAD_KB_REFRESH_INTERVAL_HOURS must be positive: %d", intervalHours)
+	}
+
+	// Load remote URL
+	remoteURL := configService.GetConfigWithDefault(ctx, "BMAD_KB_REMOTE_URL",
+		"https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md")
+
+	config := &service.Config{
+		RemoteURL:       remoteURL,
+		LocalFilePath:   "internal/knowledge/bmad.md",
+		RefreshInterval: time.Duration(intervalHours) * time.Hour,
+		Enabled:         enabled,
+		HTTPTimeout:     30 * time.Second,
+		RetryAttempts:   3,
+		RetryDelay:      time.Second,
+	}
+
+	slog.Info("Knowledge base configuration loaded from ConfigService",
+		"enabled", enabled,
+		"remote_url", remoteURL,
+		"local_file", config.LocalFilePath,
+		"interval_hours", intervalHours,
+		"http_timeout", config.HTTPTimeout)
 
 	return config, nil
 }

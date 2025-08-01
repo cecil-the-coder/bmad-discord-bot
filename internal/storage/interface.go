@@ -27,6 +27,18 @@ type ThreadOwnership struct {
 	UpdatedAt      int64  `db:"updated_at"`       // Record last update timestamp
 }
 
+// Configuration represents a configuration key-value pair stored in the database
+type Configuration struct {
+	ID          int64  `db:"id"`           // Primary key, auto-increment
+	Key         string `db:"config_key"`   // Configuration key (unique)
+	Value       string `db:"config_value"` // Configuration value
+	Type        string `db:"value_type"`   // Value type: string, int, bool, duration
+	Category    string `db:"category"`     // Configuration category for organization
+	Description string `db:"description"`  // Human-readable description
+	CreatedAt   int64  `db:"created_at"`   // Record creation timestamp
+	UpdatedAt   int64  `db:"updated_at"`   // Record last update timestamp
+}
+
 // StorageService defines the interface for message state persistence operations
 type StorageService interface {
 	// Initialize sets up the database connection and creates necessary tables
@@ -61,4 +73,19 @@ type StorageService interface {
 
 	// CleanupOldThreadOwnerships removes old thread ownership records
 	CleanupOldThreadOwnerships(ctx context.Context, maxAge int64) error
+
+	// GetConfiguration retrieves a configuration value by key
+	GetConfiguration(ctx context.Context, key string) (*Configuration, error)
+
+	// UpsertConfiguration creates or updates a configuration entry
+	UpsertConfiguration(ctx context.Context, config *Configuration) error
+
+	// GetConfigurationsByCategory retrieves all configurations in a category
+	GetConfigurationsByCategory(ctx context.Context, category string) ([]*Configuration, error)
+
+	// GetAllConfigurations retrieves all configurations
+	GetAllConfigurations(ctx context.Context) ([]*Configuration, error)
+
+	// DeleteConfiguration removes a configuration entry by key
+	DeleteConfiguration(ctx context.Context, key string) error
 }

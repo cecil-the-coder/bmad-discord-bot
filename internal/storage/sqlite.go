@@ -84,10 +84,23 @@ func (s *SQLiteStorageService) createTables(ctx context.Context) error {
 		updated_at INTEGER NOT NULL
 	);
 
+	CREATE TABLE IF NOT EXISTS configurations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		config_key TEXT NOT NULL UNIQUE,
+		config_value TEXT NOT NULL,
+		value_type TEXT DEFAULT 'string' CHECK(value_type IN ('string', 'int', 'bool', 'duration')),
+		category TEXT NOT NULL,
+		description TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_message_states_channel_thread ON message_states(channel_id, thread_id);
 	CREATE INDEX IF NOT EXISTS idx_message_states_timestamp ON message_states(last_seen_timestamp);
 	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_thread_id ON thread_ownerships(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_creation_time ON thread_ownerships(creation_time);
+	CREATE INDEX IF NOT EXISTS idx_configurations_category ON configurations(category);
+	CREATE INDEX IF NOT EXISTS idx_configurations_key_category ON configurations(config_key, category);
 	`
 
 	_, err := s.db.ExecContext(ctx, schema)
@@ -148,6 +161,39 @@ func (s *SQLiteStorageService) prepareStatements() error {
 		"cleanup_old_thread_ownerships": `
 			DELETE FROM thread_ownerships
 			WHERE creation_time < ?
+		`,
+		"get_configuration": `
+			SELECT id, config_key, config_value, value_type, category, description, created_at, updated_at
+			FROM configurations
+			WHERE config_key = ?
+		`,
+		"check_config_exists": `
+			SELECT id, created_at FROM configurations
+			WHERE config_key = ?
+		`,
+		"insert_configuration": `
+			INSERT INTO configurations (config_key, config_value, value_type, category, description, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`,
+		"update_configuration": `
+			UPDATE configurations
+			SET config_value = ?, value_type = ?, category = ?, description = ?, updated_at = ?
+			WHERE config_key = ?
+		`,
+		"get_configurations_by_category": `
+			SELECT id, config_key, config_value, value_type, category, description, created_at, updated_at
+			FROM configurations
+			WHERE category = ?
+			ORDER BY config_key
+		`,
+		"get_all_configurations": `
+			SELECT id, config_key, config_value, value_type, category, description, created_at, updated_at
+			FROM configurations
+			ORDER BY category, config_key
+		`,
+		"delete_configuration": `
+			DELETE FROM configurations
+			WHERE config_key = ?
 		`,
 	}
 
@@ -488,6 +534,185 @@ func (s *SQLiteStorageService) CleanupOldThreadOwnerships(ctx context.Context, m
 	if err == nil && rowsAffected > 0 {
 		// Log cleanup success, but don't fail if logging fails
 		_ = fmt.Sprintf("Cleaned up %d old thread ownership records", rowsAffected)
+	}
+
+	return nil
+}
+
+// GetConfiguration retrieves a configuration value by key
+func (s *SQLiteStorageService) GetConfiguration(ctx context.Context, key string) (*Configuration, error) {
+	stmt := s.prepared["get_configuration"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_configuration statement not prepared")
+	}
+
+	var config Configuration
+	err := stmt.QueryRowContext(ctx, key).Scan(
+		&config.ID,
+		&config.Key,
+		&config.Value,
+		&config.Type,
+		&config.Category,
+		&config.Description,
+		&config.CreatedAt,
+		&config.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No configuration found, not an error
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	return &config, nil
+}
+
+// UpsertConfiguration creates or updates a configuration entry
+func (s *SQLiteStorageService) UpsertConfiguration(ctx context.Context, config *Configuration) error {
+	checkStmt := s.prepared["check_config_exists"]
+	insertStmt := s.prepared["insert_configuration"]
+	updateStmt := s.prepared["update_configuration"]
+
+	if checkStmt == nil || insertStmt == nil || updateStmt == nil {
+		return fmt.Errorf("required configuration statements not prepared")
+	}
+
+	now := time.Now().Unix()
+	config.UpdatedAt = now
+
+	// Check if record exists
+	var existingID int64
+	var existingCreatedAt int64
+	err := checkStmt.QueryRowContext(ctx, config.Key).Scan(&existingID, &existingCreatedAt)
+
+	if err == sql.ErrNoRows {
+		// Record doesn't exist, insert new one
+		if config.CreatedAt == 0 {
+			config.CreatedAt = now
+		}
+		_, err = insertStmt.ExecContext(ctx,
+			config.Key,
+			config.Value,
+			config.Type,
+			config.Category,
+			config.Description,
+			config.CreatedAt,
+			config.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert configuration: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing configuration: %w", err)
+	} else {
+		// Record exists, update it
+		config.CreatedAt = existingCreatedAt // Preserve original creation time
+		_, err = updateStmt.ExecContext(ctx,
+			config.Value,
+			config.Type,
+			config.Category,
+			config.Description,
+			config.UpdatedAt,
+			config.Key,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update configuration: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// GetConfigurationsByCategory retrieves all configurations in a category
+func (s *SQLiteStorageService) GetConfigurationsByCategory(ctx context.Context, category string) ([]*Configuration, error) {
+	stmt := s.prepared["get_configurations_by_category"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_configurations_by_category statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx, category)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query configurations by category: %w", err)
+	}
+	defer rows.Close()
+
+	var configs []*Configuration
+	for rows.Next() {
+		var config Configuration
+		err := rows.Scan(
+			&config.ID,
+			&config.Key,
+			&config.Value,
+			&config.Type,
+			&config.Category,
+			&config.Description,
+			&config.CreatedAt,
+			&config.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan configuration: %w", err)
+		}
+		configs = append(configs, &config)
+	}
+
+	return configs, rows.Err()
+}
+
+// GetAllConfigurations retrieves all configurations
+func (s *SQLiteStorageService) GetAllConfigurations(ctx context.Context) ([]*Configuration, error) {
+	stmt := s.prepared["get_all_configurations"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_all_configurations statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all configurations: %w", err)
+	}
+	defer rows.Close()
+
+	var configs []*Configuration
+	for rows.Next() {
+		var config Configuration
+		err := rows.Scan(
+			&config.ID,
+			&config.Key,
+			&config.Value,
+			&config.Type,
+			&config.Category,
+			&config.Description,
+			&config.CreatedAt,
+			&config.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan configuration: %w", err)
+		}
+		configs = append(configs, &config)
+	}
+
+	return configs, rows.Err()
+}
+
+// DeleteConfiguration removes a configuration entry by key
+func (s *SQLiteStorageService) DeleteConfiguration(ctx context.Context, key string) error {
+	stmt := s.prepared["delete_configuration"]
+	if stmt == nil {
+		return fmt.Errorf("delete_configuration statement not prepared")
+	}
+
+	result, err := stmt.ExecContext(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to delete configuration: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("configuration with key '%s' not found", key)
 	}
 
 	return nil
