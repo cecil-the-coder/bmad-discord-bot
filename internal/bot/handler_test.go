@@ -2276,7 +2276,7 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 func TestHandler_ReactionTriggerDetection(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
-	
+
 	// Create handler with reaction triggers enabled
 	reactionConfig := ReactionTriggerConfig{
 		Enabled:           true,
@@ -2285,14 +2285,14 @@ func TestHandler_ReactionTriggerDetection(t *testing.T) {
 		ApprovedRoleNames: []string{"Admin", "Moderator"},
 		RequireReaction:   true,
 	}
-	
-	handler := NewHandlerWithFullConfig(logger, mockAI, nil, 
+
+	handler := NewHandlerWithFullConfig(logger, mockAI, nil,
 		ReplyMentionConfig{DeleteReplyMessage: false}, reactionConfig)
 
 	t.Run("reaction_trigger_disabled", func(t *testing.T) {
 		// Test with disabled reaction triggers
-		disabledHandler := NewHandlerWithFullConfig(logger, mockAI, nil, 
-			ReplyMentionConfig{DeleteReplyMessage: false}, 
+		disabledHandler := NewHandlerWithFullConfig(logger, mockAI, nil,
+			ReplyMentionConfig{DeleteReplyMessage: false},
 			ReactionTriggerConfig{Enabled: false})
 
 		reaction := &discordgo.MessageReactionAdd{
@@ -2311,7 +2311,7 @@ func TestHandler_ReactionTriggerDetection(t *testing.T) {
 				t.Errorf("Handler panicked with disabled reaction triggers: %v", r)
 			}
 		}()
-		
+
 		disabledHandler.HandleMessageReactionAdd(nil, reaction)
 		// Test passes if no panic occurs
 	})
@@ -2321,10 +2321,10 @@ func TestHandler_ReactionTriggerDetection(t *testing.T) {
 		// We can test this by checking that the reaction emoji matches the configured trigger emoji
 		wrongEmoji := "🔥"
 		configuredEmoji := "❓"
-		
+
 		// The handler should return early if the emojis don't match
 		assert.NotEqual(t, wrongEmoji, configuredEmoji, "Wrong emoji should not match configured emoji")
-		
+
 		// This test verifies the logic without needing to call the actual handler
 		// which might attempt Discord API calls
 	})
@@ -2352,7 +2352,7 @@ func TestHandler_ReactionTriggerDetection(t *testing.T) {
 				t.Errorf("Handler panicked with bot self-reaction: %v", r)
 			}
 		}()
-		
+
 		handler.HandleMessageReactionAdd(session, reaction)
 		// Test passes if no panic occurs
 	})
@@ -2361,7 +2361,7 @@ func TestHandler_ReactionTriggerDetection(t *testing.T) {
 // Test user authorization for reaction triggers
 func TestHandler_ReactionTriggerAuthorization(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	
+
 	reactionConfig := ReactionTriggerConfig{
 		Enabled:           true,
 		TriggerEmoji:      "❓",
@@ -2369,8 +2369,8 @@ func TestHandler_ReactionTriggerAuthorization(t *testing.T) {
 		ApprovedRoleNames: []string{"Admin", "Moderator"},
 		RequireReaction:   true,
 	}
-	
-	handler := NewHandlerWithFullConfig(logger, NewMockAIService(), nil, 
+
+	handler := NewHandlerWithFullConfig(logger, NewMockAIService(), nil,
 		ReplyMentionConfig{DeleteReplyMessage: false}, reactionConfig)
 
 	t.Run("user_authorized_by_id", func(t *testing.T) {
@@ -2378,10 +2378,10 @@ func TestHandler_ReactionTriggerAuthorization(t *testing.T) {
 			ID:       "approved-user-123",
 			Username: "testuser",
 		}
-		
+
 		// Mock session that doesn't need to fetch user
 		session := &discordgo.Session{}
-		
+
 		authorized := handler.isUserAuthorizedForReactionTrigger(session, user, "guild123")
 		assert.True(t, authorized, "User should be authorized by ID")
 	})
@@ -2391,7 +2391,7 @@ func TestHandler_ReactionTriggerAuthorization(t *testing.T) {
 			ID:       "not-approved-user",
 			Username: "testuser",
 		}
-		
+
 		// Test authorization without guild context (empty guild ID)
 		// This will skip role checks and only check user IDs
 		authorized := handler.isUserAuthorizedForReactionTrigger(nil, user, "")
@@ -2407,17 +2407,17 @@ func TestHandler_ReactionTriggerAuthorization(t *testing.T) {
 			ApprovedRoleNames: []string{},
 			RequireReaction:   true,
 		}
-		
-		emptyHandler := NewHandlerWithFullConfig(logger, NewMockAIService(), nil, 
+
+		emptyHandler := NewHandlerWithFullConfig(logger, NewMockAIService(), nil,
 			ReplyMentionConfig{DeleteReplyMessage: false}, emptyConfig)
 
 		user := &discordgo.User{
 			ID:       "any-user",
 			Username: "testuser",
 		}
-		
+
 		session := &discordgo.Session{}
-		
+
 		authorized := emptyHandler.isUserAuthorizedForReactionTrigger(session, user, "guild123")
 		assert.False(t, authorized, "User should not be authorized with empty approval lists")
 	})
@@ -2431,7 +2431,7 @@ func TestHandler_ReactionTriggerConfiguration(t *testing.T) {
 	t.Run("default_configuration", func(t *testing.T) {
 		// Test default handler configuration
 		handler := NewHandler(logger, mockAI, nil)
-		
+
 		// Default should be disabled
 		assert.False(t, handler.reactionTriggerConfig.Enabled, "Reaction triggers should be disabled by default")
 	})
@@ -2444,10 +2444,10 @@ func TestHandler_ReactionTriggerConfiguration(t *testing.T) {
 			ApprovedRoleNames: []string{"Helper", "Support"},
 			RequireReaction:   false,
 		}
-		
-		handler := NewHandlerWithFullConfig(logger, mockAI, nil, 
+
+		handler := NewHandlerWithFullConfig(logger, mockAI, nil,
 			ReplyMentionConfig{DeleteReplyMessage: false}, customConfig)
-		
+
 		assert.True(t, handler.reactionTriggerConfig.Enabled, "Reaction triggers should be enabled")
 		assert.Equal(t, "🤖", handler.reactionTriggerConfig.TriggerEmoji, "Trigger emoji should match")
 		assert.Equal(t, []string{"user1", "user2"}, handler.reactionTriggerConfig.ApprovedUserIDs, "Approved user IDs should match")
@@ -2464,10 +2464,10 @@ func TestHandler_ReactionTriggerConfiguration(t *testing.T) {
 			ApprovedRoleNames: []string{}, // Empty roles
 			RequireReaction:   true,
 		}
-		
-		handler := NewHandlerWithFullConfig(logger, mockAI, nil, 
+
+		handler := NewHandlerWithFullConfig(logger, mockAI, nil,
 			ReplyMentionConfig{DeleteReplyMessage: false}, partialConfig)
-		
+
 		assert.True(t, handler.reactionTriggerConfig.Enabled, "Reaction triggers should be enabled")
 		assert.Len(t, handler.reactionTriggerConfig.ApprovedUserIDs, 1, "Should have one approved user")
 		assert.Len(t, handler.reactionTriggerConfig.ApprovedRoleNames, 0, "Should have no approved roles")
@@ -2478,11 +2478,11 @@ func TestHandler_ReactionTriggerConfiguration(t *testing.T) {
 func TestHandler_ReactionTriggerIntegration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
-	
+
 	// Set up mock AI responses
 	mockAI.responses["test question"] = "Mock AI response"
 	mockAI.responses["integrated:test question"] = "Mock AI response|SUMMARY|Test question"
-	
+
 	reactionConfig := ReactionTriggerConfig{
 		Enabled:           true,
 		TriggerEmoji:      "❓",
@@ -2490,8 +2490,8 @@ func TestHandler_ReactionTriggerIntegration(t *testing.T) {
 		ApprovedRoleNames: []string{},
 		RequireReaction:   false, // Disable confirmation reaction for simpler testing
 	}
-	
-	_ = NewHandlerWithFullConfig(logger, mockAI, nil, 
+
+	_ = NewHandlerWithFullConfig(logger, mockAI, nil,
 		ReplyMentionConfig{DeleteReplyMessage: false}, reactionConfig)
 
 	t.Run("reaction_trigger_processes_message_content", func(t *testing.T) {
@@ -2505,9 +2505,9 @@ func TestHandler_ReactionTriggerIntegration(t *testing.T) {
 		// Test that reaction triggers use message content as query
 		messageContent := "test question"
 		queryText := strings.TrimSpace(messageContent)
-		
+
 		assert.Equal(t, "test question", queryText, "Query text should match message content")
-		
+
 		// Verify AI service would receive the correct query
 		response, err := mockAI.QueryAI(queryText)
 		assert.NoError(t, err, "AI service should handle the query")
@@ -2517,31 +2517,31 @@ func TestHandler_ReactionTriggerIntegration(t *testing.T) {
 	t.Run("reaction_trigger_attribution_format", func(t *testing.T) {
 		triggerUser := "TestUser"
 		attributionPrefix := fmt.Sprintf("**Reaction trigger by %s:** ", triggerUser)
-		
+
 		expectedPrefix := "**Reaction trigger by TestUser:** "
 		assert.Equal(t, expectedPrefix, attributionPrefix, "Attribution prefix should be formatted correctly")
-		
+
 		// Test full attributed response format
 		response := "Mock AI response"
 		attributedResponse := fmt.Sprintf("%s\n\n%s", attributionPrefix, response)
 		expectedResponse := "**Reaction trigger by TestUser:** \n\nMock AI response"
-		
+
 		assert.Equal(t, expectedResponse, attributedResponse, "Attributed response should be formatted correctly")
 	})
 
 	t.Run("reaction_trigger_thread_title_enhancement", func(t *testing.T) {
 		title := "Test question"
 		enhancedTitle := fmt.Sprintf("❓ %s", title)
-		
+
 		assert.Equal(t, "❓ Test question", enhancedTitle, "Thread title should be enhanced with emoji")
-		
+
 		// Test title truncation
 		longTitle := "This is a very long title that exceeds the maximum Discord thread title length limit"
 		enhancedLongTitle := fmt.Sprintf("❓ %s", longTitle)
 		if len(enhancedLongTitle) > 100 {
 			enhancedLongTitle = enhancedLongTitle[:97] + "..."
 		}
-		
+
 		assert.LessOrEqual(t, len(enhancedLongTitle), 100, "Enhanced title should not exceed 100 characters")
 		assert.Contains(t, enhancedLongTitle, "❓", "Enhanced title should contain reaction emoji")
 	})
@@ -2551,10 +2551,10 @@ func TestHandler_ReactionTriggerIntegration(t *testing.T) {
 func TestHandler_ReactionTriggerErrorHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
-	
+
 	// Set up AI service to return errors for certain queries
 	mockAI.errors["error query"] = fmt.Errorf("AI service error")
-	
+
 	reactionConfig := ReactionTriggerConfig{
 		Enabled:           true,
 		TriggerEmoji:      "❓",
@@ -2562,8 +2562,8 @@ func TestHandler_ReactionTriggerErrorHandling(t *testing.T) {
 		ApprovedRoleNames: []string{},
 		RequireReaction:   false,
 	}
-	
-	_ = NewHandlerWithFullConfig(logger, mockAI, nil, 
+
+	_ = NewHandlerWithFullConfig(logger, mockAI, nil,
 		ReplyMentionConfig{DeleteReplyMessage: false}, reactionConfig)
 
 	t.Run("ai_service_error_handling", func(t *testing.T) {
@@ -2577,9 +2577,9 @@ func TestHandler_ReactionTriggerErrorHandling(t *testing.T) {
 		// Test handling of empty message content
 		emptyContent := ""
 		queryText := strings.TrimSpace(emptyContent)
-		
+
 		assert.Equal(t, "", queryText, "Empty content should result in empty query")
-		
+
 		// Reaction trigger should skip processing empty content
 		// This is tested implicitly in the actual handler logic
 	})
@@ -2595,7 +2595,7 @@ func TestHandler_ReactionTriggerErrorHandling(t *testing.T) {
 				Bot:      true, // This should be filtered out
 			},
 		}
-		
+
 		assert.True(t, botMessage.Author.Bot, "Message should be from a bot")
 		// The handler should skip processing this message due to the Bot flag
 	})

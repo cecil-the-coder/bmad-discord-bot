@@ -11,5 +11,7 @@ This table represents the definitive technology selection for the project.
 | **Build Tool** | Go Toolchain | 1.24.x | Compiling the application | The standard, built-in build system for Go. |
 | **IaC / Runtime** | Docker | 26.x | Containerization | Fulfills PRD requirement (NFR3) for portable and scalable deployment. |
 | **Logging** | slog | 1.24.x | Structured Logging | The official structured logging package in Go's standard library. |
-| **Database** | SQLite3 | v3.x | Message State Persistence | Local file-based database for storing bot state and message tracking information. |
-| **Database Driver** | go-sqlite3 | v1.14.x | SQLite Go Driver | CGO-based SQLite driver for Go applications. |
+| **Database (Primary)** | SQLite3 | v3.x | Message State Persistence | Local file-based database for storing bot state and message tracking information. Default storage for backward compatibility. |
+| **Database (Cloud-Native)** | MySQL | 8.0+ | Cloud-Native Message State Persistence | External database service for cloud-native deployments with horizontal scaling capabilities. |
+| **Database Driver (SQLite)** | go-sqlite3 | v1.14.x | SQLite Go Driver | CGO-based SQLite driver for Go applications. |
+| **Database Driver (MySQL)** | go-sql-driver/mysql | v1.9.x | MySQL Go Driver | Pure Go MySQL driver for cloud-native database connectivity. |

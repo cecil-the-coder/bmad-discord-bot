@@ -27,21 +27,21 @@ type ReplyMentionConfig struct {
 
 // ReactionTriggerConfig holds configuration for reaction-based bot triggers
 type ReactionTriggerConfig struct {
-	Enabled           bool     // Whether reaction triggers are enabled
-	TriggerEmoji      string   // Emoji that triggers the bot (e.g., "❓" or "🤖")
-	ApprovedUserIDs   []string // List of user IDs authorized to use reaction triggers
-	ApprovedRoleNames []string // List of role names authorized to use reaction triggers
-	RequireReaction   bool     // Whether to add a confirmation reaction when processing
-	RemoveTriggerReaction bool // Whether to remove the trigger reaction after processing
+	Enabled               bool     // Whether reaction triggers are enabled
+	TriggerEmoji          string   // Emoji that triggers the bot (e.g., "❓" or "🤖")
+	ApprovedUserIDs       []string // List of user IDs authorized to use reaction triggers
+	ApprovedRoleNames     []string // List of role names authorized to use reaction triggers
+	RequireReaction       bool     // Whether to add a confirmation reaction when processing
+	RemoveTriggerReaction bool     // Whether to remove the trigger reaction after processing
 }
 
 // Handler manages Discord event handling
 type Handler struct {
-	logger               *slog.Logger
-	aiService            service.AIService
-	storageService       storage.StorageService
-	threadOwnership      map[string]*ThreadOwnership // threadID -> ownership info
-	replyMentionConfig   ReplyMentionConfig          // Configuration for reply mention behavior
+	logger                *slog.Logger
+	aiService             service.AIService
+	storageService        storage.StorageService
+	threadOwnership       map[string]*ThreadOwnership // threadID -> ownership info
+	replyMentionConfig    ReplyMentionConfig          // Configuration for reply mention behavior
 	reactionTriggerConfig ReactionTriggerConfig       // Configuration for reaction-based triggers
 }
 
@@ -78,11 +78,11 @@ func NewHandlerWithConfig(logger *slog.Logger, aiService service.AIService, stor
 // NewHandlerWithFullConfig creates a new bot event handler with both reply mention and reaction trigger configuration
 func NewHandlerWithFullConfig(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService, replyConfig ReplyMentionConfig, reactionConfig ReactionTriggerConfig) *Handler {
 	return &Handler{
-		logger:               logger,
-		aiService:            aiService,
-		storageService:       storageService,
-		threadOwnership:      make(map[string]*ThreadOwnership),
-		replyMentionConfig:   replyConfig,
+		logger:                logger,
+		aiService:             aiService,
+		storageService:        storageService,
+		threadOwnership:       make(map[string]*ThreadOwnership),
+		replyMentionConfig:    replyConfig,
 		reactionTriggerConfig: reactionConfig,
 	}
 }
@@ -1117,19 +1117,19 @@ func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []stri
 func (h *Handler) formatForDiscord(response string) string {
 	// Discord requires double line breaks for paragraph separation
 	// Convert any sequence of single newlines to double newlines for proper paragraph breaks
-	
+
 	// First, normalize line endings to \n
 	normalized := strings.ReplaceAll(response, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-	
+
 	// Split into lines and rebuild with proper Discord formatting
 	lines := strings.Split(normalized, "\n")
 	var formattedLines []string
 	var currentParagraph []string
-	
+
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
-		
+
 		// If we hit an empty line or line that's clearly a paragraph break
 		if trimmedLine == "" {
 			// End current paragraph if we have content
@@ -1144,20 +1144,20 @@ func (h *Handler) formatForDiscord(response string) string {
 			currentParagraph = append(currentParagraph, trimmedLine)
 		}
 	}
-	
+
 	// Don't forget the last paragraph
 	if len(currentParagraph) > 0 {
 		formattedLines = append(formattedLines, strings.Join(currentParagraph, " "))
 	}
-	
+
 	// Join with single newlines - Discord will render double newlines as paragraph breaks
 	result := strings.Join(formattedLines, "\n")
-	
+
 	// Clean up multiple consecutive empty lines (more than 2 newlines in a row)
 	for strings.Contains(result, "\n\n\n") {
 		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
 	}
-	
+
 	return result
 }
 
@@ -1600,7 +1600,7 @@ func (h *Handler) processReactionTriggerInThread(s *discordgo.Session, m *discor
 	const historyLimit = 50
 	includeAllMessages := true
 	threadMessages, historyErr := h.fetchThreadHistory(s, m.ChannelID, s.State.User.ID, historyLimit, includeAllMessages)
-	
+
 	var response string
 	var err error
 

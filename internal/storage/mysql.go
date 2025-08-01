@@ -4,40 +4,168 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
+	"math"
+	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite driver
+	_ "github.com/go-sql-driver/mysql" // MySQL driver
 )
 
-// SQLiteStorageService implements StorageService using SQLite
-type SQLiteStorageService struct {
+// MySQLStorageService implements StorageService using MySQL
+type MySQLStorageService struct {
 	db       *sql.DB
-	dbPath   string
+	dsn      string
 	prepared map[string]*sql.Stmt
 }
 
-// NewSQLiteStorageService creates a new SQLite storage service
-func NewSQLiteStorageService(dbPath string) *SQLiteStorageService {
-	return &SQLiteStorageService{
-		dbPath:   dbPath,
+// MySQLConfig holds MySQL connection configuration
+type MySQLConfig struct {
+	Host     string
+	Port     string
+	Database string
+	Username string
+	Password string
+	Timeout  string
+}
+
+// NewMySQLStorageService creates a new MySQL storage service
+func NewMySQLStorageService(config MySQLConfig) *MySQLStorageService {
+	// Build DSN (Data Source Name)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&timeout=%s",
+		config.Username,
+		config.Password,
+		config.Host,
+		config.Port,
+		config.Database,
+		config.Timeout,
+	)
+
+	return &MySQLStorageService{
+		dsn:      dsn,
 		prepared: make(map[string]*sql.Stmt),
 	}
 }
 
-// Initialize sets up the database connection and creates necessary tables
-func (s *SQLiteStorageService) Initialize(ctx context.Context) error {
-	// Create directory if it doesn't exist
-	dir := filepath.Dir(s.dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create database directory: %w", err)
+// connectWithRetry attempts to connect to MySQL with exponential backoff retry logic
+func (s *MySQLStorageService) connectWithRetry(ctx context.Context) (*sql.DB, error) {
+	const maxRetries = 5
+	const baseDelay = time.Second
+
+	var db *sql.DB
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Open database connection
+		var err error
+		db, err = sql.Open("mysql", s.dsn)
+		if err != nil {
+			lastErr = fmt.Errorf("attempt %d: failed to open database: %w", attempt+1, err)
+			if attempt < maxRetries-1 {
+				delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+				select {
+				case <-time.After(delay):
+					continue
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			continue
+		}
+
+		// Test connection
+		if err = db.PingContext(ctx); err != nil {
+			db.Close()
+			lastErr = fmt.Errorf("attempt %d: failed to ping database: %w", attempt+1, err)
+			if attempt < maxRetries-1 {
+				delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+				select {
+				case <-time.After(delay):
+					continue
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			continue
+		}
+
+		// Success
+		return db, nil
 	}
 
-	// Open database connection
-	db, err := sql.Open("sqlite3", s.dbPath+"?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=1000&_foreign_keys=1")
+	return nil, fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
+}
+
+// isRetryableError checks if an error is retryable (network/connection issues)
+func (s *MySQLStorageService) isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+	// Check for common retryable MySQL errors
+	retryableErrors := []string{
+		"connection refused",
+		"connection reset",
+		"timeout",
+		"driver: bad connection",
+		"invalid connection",
+		"broken pipe",
+		"no such host",
+	}
+
+	for _, retryable := range retryableErrors {
+		if strings.Contains(errStr, retryable) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// executeWithRetry executes a database operation with retry logic for connection failures
+func (s *MySQLStorageService) executeWithRetry(ctx context.Context, operation func() error) error {
+	const maxRetries = 3
+	const baseDelay = 500 * time.Millisecond
+
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := operation()
+		if err == nil {
+			return nil // Success
+		}
+
+		lastErr = err
+
+		// Don't retry if it's not a connection-related error
+		if !s.isRetryableError(err) {
+			return err
+		}
+
+		// Don't retry on the last attempt
+		if attempt == maxRetries-1 {
+			break
+		}
+
+		// Exponential backoff
+		delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+		select {
+		case <-time.After(delay):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return fmt.Errorf("operation failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// Initialize sets up the database connection and creates necessary tables
+func (s *MySQLStorageService) Initialize(ctx context.Context) error {
+	// Open database connection with retry logic
+	db, err := s.connectWithRetry(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to establish database connection: %w", err)
 	}
 
 	s.db = db
@@ -46,6 +174,12 @@ func (s *SQLiteStorageService) Initialize(ctx context.Context) error {
 	s.db.SetMaxOpenConns(10)
 	s.db.SetMaxIdleConns(5)
 	s.db.SetConnMaxLifetime(time.Hour)
+
+	// Initialize schema versioning
+	schemaManager := NewSchemaManager(s.db)
+	if err := schemaManager.InitializeVersioning(ctx); err != nil {
+		return fmt.Errorf("failed to initialize schema versioning: %w", err)
+	}
 
 	// Create tables
 	if err := s.createTables(ctx); err != nil {
@@ -61,41 +195,55 @@ func (s *SQLiteStorageService) Initialize(ctx context.Context) error {
 }
 
 // createTables creates the necessary database tables
-func (s *SQLiteStorageService) createTables(ctx context.Context) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS message_states (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		channel_id TEXT NOT NULL,
-		thread_id TEXT NULL,
-		last_message_id TEXT NOT NULL,
-		last_seen_timestamp INTEGER NOT NULL,
-		created_at INTEGER NOT NULL,
-		updated_at INTEGER NOT NULL,
-		UNIQUE(channel_id, thread_id)
-	);
+func (s *MySQLStorageService) createTables(ctx context.Context) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS message_states (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			channel_id VARCHAR(255) NOT NULL,
+			thread_id VARCHAR(255) NULL,
+			last_message_id VARCHAR(255) NOT NULL,
+			last_seen_timestamp BIGINT NOT NULL,
+			created_at BIGINT NOT NULL,
+			updated_at BIGINT NOT NULL,
+			UNIQUE KEY unique_channel_thread (channel_id, thread_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS thread_ownerships (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			thread_id VARCHAR(255) NOT NULL UNIQUE,
+			original_user_id VARCHAR(255) NOT NULL,
+			created_by VARCHAR(255) NOT NULL,
+			creation_time BIGINT NOT NULL,
+			created_at BIGINT NOT NULL,
+			updated_at BIGINT NOT NULL
+		)`,
+		`CREATE INDEX idx_message_states_channel_thread ON message_states(channel_id, thread_id)`,
+		`CREATE INDEX idx_message_states_timestamp ON message_states(last_seen_timestamp)`,
+		`CREATE INDEX idx_thread_ownerships_thread_id ON thread_ownerships(thread_id)`,
+		`CREATE INDEX idx_thread_ownerships_creation_time ON thread_ownerships(creation_time)`,
+	}
 
-	CREATE TABLE IF NOT EXISTS thread_ownerships (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		thread_id TEXT NOT NULL UNIQUE,
-		original_user_id TEXT NOT NULL,
-		created_by TEXT NOT NULL,
-		creation_time INTEGER NOT NULL,
-		created_at INTEGER NOT NULL,
-		updated_at INTEGER NOT NULL
-	);
+	// Create tables first
+	for i := 0; i < 2; i++ {
+		if _, err := s.db.ExecContext(ctx, statements[i]); err != nil {
+			return fmt.Errorf("failed to execute schema statement: %w", err)
+		}
+	}
 
-	CREATE INDEX IF NOT EXISTS idx_message_states_channel_thread ON message_states(channel_id, thread_id);
-	CREATE INDEX IF NOT EXISTS idx_message_states_timestamp ON message_states(last_seen_timestamp);
-	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_thread_id ON thread_ownerships(thread_id);
-	CREATE INDEX IF NOT EXISTS idx_thread_ownerships_creation_time ON thread_ownerships(creation_time);
-	`
+	// Create indexes with error handling for duplicates
+	for i := 2; i < len(statements); i++ {
+		if _, err := s.db.ExecContext(ctx, statements[i]); err != nil {
+			// Ignore duplicate index errors (MySQL error code 1061)
+			if !strings.Contains(err.Error(), "Duplicate key name") {
+				return fmt.Errorf("failed to execute schema statement: %w", err)
+			}
+		}
+	}
 
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
+	return nil
 }
 
 // prepareStatements prepares frequently used SQL statements
-func (s *SQLiteStorageService) prepareStatements() error {
+func (s *MySQLStorageService) prepareStatements() error {
 	statements := map[string]string{
 		"get_state": `
 			SELECT id, channel_id, thread_id, last_message_id, last_seen_timestamp, created_at, updated_at
@@ -163,7 +311,7 @@ func (s *SQLiteStorageService) prepareStatements() error {
 }
 
 // Close closes the database connection
-func (s *SQLiteStorageService) Close() error {
+func (s *MySQLStorageService) Close() error {
 	// Close prepared statements
 	for _, stmt := range s.prepared {
 		if stmt != nil {
@@ -179,7 +327,7 @@ func (s *SQLiteStorageService) Close() error {
 }
 
 // GetMessageState retrieves the last seen message state for a channel/thread
-func (s *SQLiteStorageService) GetMessageState(ctx context.Context, channelID string, threadID *string) (*MessageState, error) {
+func (s *MySQLStorageService) GetMessageState(ctx context.Context, channelID string, threadID *string) (*MessageState, error) {
 	stmt := s.prepared["get_state"]
 	if stmt == nil {
 		return nil, fmt.Errorf("get_state statement not prepared")
@@ -207,7 +355,7 @@ func (s *SQLiteStorageService) GetMessageState(ctx context.Context, channelID st
 }
 
 // UpsertMessageState creates or updates the message state for a channel/thread
-func (s *SQLiteStorageService) UpsertMessageState(ctx context.Context, state *MessageState) error {
+func (s *MySQLStorageService) UpsertMessageState(ctx context.Context, state *MessageState) error {
 	checkStmt := s.prepared["check_exists"]
 	insertStmt := s.prepared["insert_state"]
 	updateStmt := s.prepared["update_state"]
@@ -262,7 +410,7 @@ func (s *SQLiteStorageService) UpsertMessageState(ctx context.Context, state *Me
 }
 
 // GetAllMessageStates retrieves all message states for recovery purposes
-func (s *SQLiteStorageService) GetAllMessageStates(ctx context.Context) ([]*MessageState, error) {
+func (s *MySQLStorageService) GetAllMessageStates(ctx context.Context) ([]*MessageState, error) {
 	stmt := s.prepared["get_all_states"]
 	if stmt == nil {
 		return nil, fmt.Errorf("get_all_states statement not prepared")
@@ -296,7 +444,7 @@ func (s *SQLiteStorageService) GetAllMessageStates(ctx context.Context) ([]*Mess
 }
 
 // GetMessageStatesWithinWindow retrieves message states within a specific time window
-func (s *SQLiteStorageService) GetMessageStatesWithinWindow(ctx context.Context, windowDuration time.Duration) ([]*MessageState, error) {
+func (s *MySQLStorageService) GetMessageStatesWithinWindow(ctx context.Context, windowDuration time.Duration) ([]*MessageState, error) {
 	stmt := s.prepared["get_states_within_window"]
 	if stmt == nil {
 		return nil, fmt.Errorf("get_states_within_window statement not prepared")
@@ -331,28 +479,30 @@ func (s *SQLiteStorageService) GetMessageStatesWithinWindow(ctx context.Context,
 }
 
 // HealthCheck verifies that the database connection is working
-func (s *SQLiteStorageService) HealthCheck(ctx context.Context) error {
+func (s *MySQLStorageService) HealthCheck(ctx context.Context) error {
 	if s.db == nil {
 		return fmt.Errorf("database connection is nil")
 	}
 
-	// Simple ping to check connection
-	err := s.db.PingContext(ctx)
-	if err != nil {
-		return fmt.Errorf("database ping failed: %w", err)
-	}
+	// Use retry logic for health check
+	return s.executeWithRetry(ctx, func() error {
+		// Simple ping to check connection
+		if err := s.db.PingContext(ctx); err != nil {
+			return fmt.Errorf("database ping failed: %w", err)
+		}
 
-	// Test query to ensure tables exist
-	_, err = s.db.ExecContext(ctx, "SELECT COUNT(*) FROM message_states LIMIT 1")
-	if err != nil {
-		return fmt.Errorf("database health check query failed: %w", err)
-	}
+		// Test query to ensure tables exist
+		_, err := s.db.ExecContext(ctx, "SELECT COUNT(*) FROM message_states LIMIT 1")
+		if err != nil {
+			return fmt.Errorf("database health check query failed: %w", err)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // GetThreadOwnership retrieves thread ownership information for a thread
-func (s *SQLiteStorageService) GetThreadOwnership(ctx context.Context, threadID string) (*ThreadOwnership, error) {
+func (s *MySQLStorageService) GetThreadOwnership(ctx context.Context, threadID string) (*ThreadOwnership, error) {
 	stmt := s.prepared["get_thread_ownership"]
 	if stmt == nil {
 		return nil, fmt.Errorf("get_thread_ownership statement not prepared")
@@ -382,7 +532,7 @@ func (s *SQLiteStorageService) GetThreadOwnership(ctx context.Context, threadID 
 }
 
 // UpsertThreadOwnership creates or updates thread ownership information
-func (s *SQLiteStorageService) UpsertThreadOwnership(ctx context.Context, ownership *ThreadOwnership) error {
+func (s *MySQLStorageService) UpsertThreadOwnership(ctx context.Context, ownership *ThreadOwnership) error {
 	// Check if ownership exists
 	existing, err := s.GetThreadOwnership(ctx, ownership.ThreadID)
 	if err != nil {
@@ -437,7 +587,7 @@ func (s *SQLiteStorageService) UpsertThreadOwnership(ctx context.Context, owners
 }
 
 // GetAllThreadOwnerships retrieves all thread ownership records
-func (s *SQLiteStorageService) GetAllThreadOwnerships(ctx context.Context) ([]*ThreadOwnership, error) {
+func (s *MySQLStorageService) GetAllThreadOwnerships(ctx context.Context) ([]*ThreadOwnership, error) {
 	stmt := s.prepared["get_all_thread_ownerships"]
 	if stmt == nil {
 		return nil, fmt.Errorf("get_all_thread_ownerships statement not prepared")
@@ -471,7 +621,7 @@ func (s *SQLiteStorageService) GetAllThreadOwnerships(ctx context.Context) ([]*T
 }
 
 // CleanupOldThreadOwnerships removes old thread ownership records
-func (s *SQLiteStorageService) CleanupOldThreadOwnerships(ctx context.Context, maxAge int64) error {
+func (s *MySQLStorageService) CleanupOldThreadOwnerships(ctx context.Context, maxAge int64) error {
 	stmt := s.prepared["cleanup_old_thread_ownerships"]
 	if stmt == nil {
 		return fmt.Errorf("cleanup_old_thread_ownerships statement not prepared")

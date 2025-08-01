@@ -102,3 +102,17 @@ As a Discord user, I want to include the BMAD knowledge bot in a conversation by
     * 2.8.4: The system preserves existing mention detection logic and thread management for direct mentions and auto-response scenarios.
     * 2.8.5: The reply mention feature works in both main channels and existing threads.
     * 2.8.6: The bot provides clear attribution when responding to reply mentions, indicating which message it is addressing.
+
+## Story 2.9: Migrate from SQLite to MySQL for Cloud-Native Deployment
+
+As a system administrator, I want to migrate the bot's data persistence from SQLite to MySQL, so that the application is decoupled from the local filesystem and suitable for Kubernetes/cloud-native deployment with external database services.
+
+* **Acceptance Criteria**:
+    * 2.9.1: The system supports MySQL database connection with configurable host, port, database name, username, and password via environment variables.
+    * 2.9.2: All existing SQLite schema and data models are migrated to MySQL with equivalent functionality and data integrity.
+    * 2.9.3: Database initialization automatically creates required tables and indexes if they don't exist, with proper error handling for connection failures.
+    * 2.9.4: All existing storage operations (message tracking, rate limiting state, thread context) work identically with MySQL backend.
+    * 2.9.5: The system includes database migration scripts or automated migration from existing SQLite data to MySQL.
+    * 2.9.6: Connection pooling and proper connection management are implemented for production reliability and performance.
+    * 2.9.7: The MySQL integration maintains backward compatibility with existing storage interface contracts.
+    * 2.9.8: Comprehensive error handling for database connectivity issues, including graceful degradation when database is unavailable.

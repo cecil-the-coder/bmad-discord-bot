@@ -904,7 +904,7 @@ func (o *OllamaAIService) parseResponseWithSummary(response string) (string, str
 	summaryMarkers := []string{"[SUMMARY]:", "### Summary", "##Summary", "Summary:", "SUMMARY:"}
 	var summaryIndex int = -1
 	var foundMarker string
-	
+
 	for _, marker := range summaryMarkers {
 		if idx := strings.LastIndex(response, marker); idx != -1 {
 			summaryIndex = idx
@@ -923,7 +923,7 @@ func (o *OllamaAIService) parseResponseWithSummary(response string) (string, str
 
 	// Extract main answer (everything before the summary marker)
 	mainAnswer := strings.TrimSpace(response[:summaryIndex])
-	
+
 	// Remove unnecessary headers from the main answer
 	mainAnswer = o.removeUnnecessaryHeaders(mainAnswer)
 
@@ -972,40 +972,40 @@ func (o *OllamaAIService) unescapeText(text string) string {
 // removeSummaryMarkers removes summary markers and content from text
 func (o *OllamaAIService) removeSummaryMarkers(text string) string {
 	summaryMarkers := []string{"[SUMMARY]:", "### Summary", "##Summary", "Summary:", "SUMMARY:"}
-	
+
 	for _, marker := range summaryMarkers {
 		if summaryIndex := strings.LastIndex(text, marker); summaryIndex != -1 {
 			// Return everything before the summary marker, trimmed
 			return strings.TrimSpace(text[:summaryIndex])
 		}
 	}
-	
+
 	return text // No summary marker found
 }
 
 // removeUnnecessaryHeaders removes unnecessary headers like "### Answer" from response
 func (o *OllamaAIService) removeUnnecessaryHeaders(text string) string {
 	unnecessaryHeaders := []string{"### Answer", "## Answer", "# Answer", "**Answer**", "Answer:", "ANSWER:"}
-	
+
 	lines := strings.Split(text, "\n")
 	var filteredLines []string
-	
+
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 		isUnnecessaryHeader := false
-		
+
 		for _, header := range unnecessaryHeaders {
 			if trimmedLine == header {
 				isUnnecessaryHeader = true
 				break
 			}
 		}
-		
+
 		if !isUnnecessaryHeader {
 			filteredLines = append(filteredLines, line)
 		}
 	}
-	
+
 	return strings.Join(filteredLines, "\n")
 }
 

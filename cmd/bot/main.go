@@ -76,7 +76,7 @@ func main() {
 	}
 
 	// Read and validate database configuration
-	databasePath, recoveryWindowMinutes, err := loadDatabaseConfig()
+	databaseType, databasePath, recoveryWindowMinutes, err := loadDatabaseConfig()
 	if err != nil {
 		slog.Error("Failed to load database configuration", "error", err)
 		os.Exit(1)
@@ -104,9 +104,25 @@ func main() {
 	}
 
 	// Initialize storage service
-	storageService := storage.NewSQLiteStorageService(databasePath)
+	var storageService storage.StorageService
+	if databaseType == "mysql" {
+		mysqlConfig, err := loadMySQLConfig()
+		if err != nil {
+			slog.Error("Failed to load MySQL configuration", "error", err)
+			os.Exit(1)
+		}
+		storageService = storage.NewMySQLStorageService(mysqlConfig)
+		slog.Info("Using MySQL storage service",
+			"host", mysqlConfig.Host,
+			"port", mysqlConfig.Port,
+			"database", mysqlConfig.Database)
+	} else {
+		storageService = storage.NewSQLiteStorageService(databasePath)
+		slog.Info("Using SQLite storage service", "database_path", databasePath)
+	}
+
 	if err := storageService.Initialize(context.Background()); err != nil {
-		slog.Error("Failed to initialize storage service", "error", err)
+		slog.Error("Failed to initialize storage service", "error", err, "type", databaseType)
 		os.Exit(1)
 	}
 	defer func() {
@@ -115,7 +131,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("Storage service initialized successfully", "database_path", databasePath)
+	slog.Info("Storage service initialized successfully", "type", databaseType)
 
 	// Initialize rate limit manager with provider configurations
 	rateLimitManager := monitor.NewRateLimitManager(logger, []monitor.ProviderConfig{rateLimitConfig})
@@ -172,7 +188,7 @@ func main() {
 	}
 
 	// Create bot handler with AI service, storage service, and full configuration
-	handler := bot.NewHandlerWithFullConfig(logger, aiService, storageService, 
+	handler := bot.NewHandlerWithFullConfig(logger, aiService, storageService,
 		bot.ReplyMentionConfig{
 			DeleteReplyMessage: replyMentionConfig.DeleteReplyMessage,
 		},
@@ -543,8 +559,19 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 }
 
 // loadDatabaseConfig loads database configuration from environment variables
-func loadDatabaseConfig() (string, int, error) {
-	// Load database path (default: "./data/bot_state.db")
+func loadDatabaseConfig() (string, string, int, error) {
+	// Load database type (default: "sqlite")
+	databaseType := os.Getenv("DATABASE_TYPE")
+	if databaseType == "" {
+		databaseType = "sqlite" // Default value for backward compatibility
+	}
+
+	// Validate database type
+	if databaseType != "sqlite" && databaseType != "mysql" {
+		return "", "", 0, fmt.Errorf("invalid DATABASE_TYPE: %s (supported: sqlite, mysql)", databaseType)
+	}
+
+	// Load database path (only needed for SQLite, default: "./data/bot_state.db")
 	databasePath := os.Getenv("DATABASE_PATH")
 	if databasePath == "" {
 		databasePath = "./data/bot_state.db" // Default value
@@ -558,18 +585,74 @@ func loadDatabaseConfig() (string, int, error) {
 
 	recoveryWindowMinutes, err := strconv.Atoi(recoveryWindowStr)
 	if err != nil {
-		return "", 0, fmt.Errorf("invalid MESSAGE_RECOVERY_WINDOW_MINUTES: %s", recoveryWindowStr)
+		return "", "", 0, fmt.Errorf("invalid MESSAGE_RECOVERY_WINDOW_MINUTES: %s", recoveryWindowStr)
 	}
 
 	if recoveryWindowMinutes < 0 {
-		return "", 0, fmt.Errorf("MESSAGE_RECOVERY_WINDOW_MINUTES must be non-negative: %d", recoveryWindowMinutes)
+		return "", "", 0, fmt.Errorf("MESSAGE_RECOVERY_WINDOW_MINUTES must be non-negative: %d", recoveryWindowMinutes)
 	}
 
 	slog.Info("Database configuration loaded",
+		"database_type", databaseType,
 		"database_path", databasePath,
 		"recovery_window_minutes", recoveryWindowMinutes)
 
-	return databasePath, recoveryWindowMinutes, nil
+	return databaseType, databasePath, recoveryWindowMinutes, nil
+}
+
+// loadMySQLConfig loads MySQL-specific configuration from environment variables
+func loadMySQLConfig() (storage.MySQLConfig, error) {
+	config := storage.MySQLConfig{}
+
+	// Load MySQL host (default: "localhost")
+	config.Host = os.Getenv("MYSQL_HOST")
+	if config.Host == "" {
+		config.Host = "localhost"
+	}
+
+	// Load MySQL port (default: "3306")
+	config.Port = os.Getenv("MYSQL_PORT")
+	if config.Port == "" {
+		config.Port = "3306"
+	}
+
+	// Load MySQL database name (default: "bmad_bot")
+	config.Database = os.Getenv("MYSQL_DATABASE")
+	if config.Database == "" {
+		config.Database = "bmad_bot"
+	}
+
+	// Load MySQL username (required)
+	config.Username = os.Getenv("MYSQL_USERNAME")
+	if config.Username == "" {
+		return config, fmt.Errorf("MYSQL_USERNAME environment variable is required")
+	}
+
+	// Load MySQL password (required)
+	config.Password = os.Getenv("MYSQL_PASSWORD")
+	if config.Password == "" {
+		return config, fmt.Errorf("MYSQL_PASSWORD environment variable is required")
+	}
+
+	// Load MySQL timeout (default: "30s")
+	config.Timeout = os.Getenv("MYSQL_TIMEOUT")
+	if config.Timeout == "" {
+		config.Timeout = "30s"
+	}
+
+	// Validate timeout format
+	if _, err := time.ParseDuration(config.Timeout); err != nil {
+		return config, fmt.Errorf("invalid MYSQL_TIMEOUT format: %s", config.Timeout)
+	}
+
+	slog.Info("MySQL configuration loaded",
+		"host", config.Host,
+		"port", config.Port,
+		"database", config.Database,
+		"username", config.Username,
+		"timeout", config.Timeout)
+
+	return config, nil
 }
 
 // loadKnowledgeBaseConfig loads knowledge base refresh configuration from environment variables
@@ -668,12 +751,12 @@ type ReplyMentionConfig struct {
 
 // ReactionTriggerConfig holds configuration for reaction-based bot triggers
 type ReactionTriggerConfig struct {
-	Enabled           bool     // Whether reaction triggers are enabled
-	TriggerEmoji      string   // Emoji that triggers the bot (e.g., "❓" or "🤖")
-	ApprovedUserIDs   []string // List of user IDs authorized to use reaction triggers
-	ApprovedRoleNames []string // List of role names authorized to use reaction triggers
-	RequireReaction   bool     // Whether to add a confirmation reaction when processing
-	RemoveTriggerReaction bool // Whether to remove the trigger reaction after processing
+	Enabled               bool     // Whether reaction triggers are enabled
+	TriggerEmoji          string   // Emoji that triggers the bot (e.g., "❓" or "🤖")
+	ApprovedUserIDs       []string // List of user IDs authorized to use reaction triggers
+	ApprovedRoleNames     []string // List of role names authorized to use reaction triggers
+	RequireReaction       bool     // Whether to add a confirmation reaction when processing
+	RemoveTriggerReaction bool     // Whether to remove the trigger reaction after processing
 }
 
 // loadReplyMentionConfig loads reply mention configuration from environment variables
