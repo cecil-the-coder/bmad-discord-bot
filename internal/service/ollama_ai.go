@@ -207,7 +207,7 @@ func (o *OllamaAIService) validateModel() error {
 		if strings.Contains(string(body), "model") && strings.Contains(string(body), "not found") {
 			return fmt.Errorf("model '%s' not found on Ollama server", o.modelName)
 		}
-		return fmt.Errorf("Ollama server returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("ollama server returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response to check for errors
@@ -217,7 +217,7 @@ func (o *OllamaAIService) validateModel() error {
 	}
 
 	if ollamaResp.Error != "" {
-		return fmt.Errorf("Ollama API error: %s", ollamaResp.Error)
+		return fmt.Errorf("ollama API error: %s", ollamaResp.Error)
 	}
 
 	o.logger.Info("Model validation completed successfully",
@@ -740,9 +740,9 @@ func (o *OllamaAIService) executeQuery(prompt string) (string, error) {
 
 		// Check for specific error types
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("Ollama API request timed out after %v", o.timeout)
+			return "", fmt.Errorf("ollama API request timed out after %v", o.timeout)
 		}
-		return "", fmt.Errorf("Ollama API request failed: %w", err)
+		return "", fmt.Errorf("ollama API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -753,7 +753,7 @@ func (o *OllamaAIService) executeQuery(prompt string) (string, error) {
 			"provider", o.GetProviderID(),
 			"status", resp.StatusCode,
 			"response", string(body))
-		return "", fmt.Errorf("Ollama API returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("ollama API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
@@ -767,7 +767,7 @@ func (o *OllamaAIService) executeQuery(prompt string) (string, error) {
 		o.logger.Error("Ollama API returned error",
 			"provider", o.GetProviderID(),
 			"error", ollamaResp.Error)
-		return "", fmt.Errorf("Ollama API error: %s", ollamaResp.Error)
+		return "", fmt.Errorf("ollama API error: %s", ollamaResp.Error)
 	}
 
 	// Validate response

@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: bmad-discord-bot
+  namespace: bmad-bot
+
+# Define the namespace for all resources  
+namespace: bmad-bot
+
+# Resources to be deployed in order
+resources:
+- namespace.yaml
+- serviceaccount.yaml
+- configmap.yaml
+- secret.yaml
+- persistentvolume.yaml
+- deployment.yaml
+- networkpolicy.yaml
+- hpa.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: bmad-discord-bot
+  app.kubernetes.io/instance: bmad-bot
+  app.kubernetes.io/version: "1.0"
+  app.kubernetes.io/component: discord-bot
+  app.kubernetes.io/part-of: bmad-platform
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations applied to all resources
+commonAnnotations:
+  bmad.io/project: "bmad-discord-bot"
+  bmad.io/environment: "production"
+  bmad.io/deployment-method: "kustomize"
+
+# Image transformation - update image tag for deployments
+images:
+- name: ghcr.io/cecil-the-coder/bmad-discord-bot/bmad-discord-bot
+  newTag: latest
+
+# Configuration replacements for different environments
+replicas:
+- name: bmad-discord-bot
+  count: 1
+
+# Patches for environment-specific configurations
+patches:
+- target:
+    kind: Deployment
+    name: bmad-discord-bot
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: "512Mi"
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/cpu
+      value: "500m"
+
+# Secret generator (commented out - use kubectl to create actual secrets)
+# secretGenerator:
+# - name: bmad-bot-secrets
+#   literals:
+#   - BOT_TOKEN=your_discord_bot_token_here
+#   - MYSQL_PASSWORD=your_mysql_password_here
+
+# ConfigMap generator for environment-specific values
+configMapGenerator:
+- name: bmad-bot-env-config
+  literals:
+  - DEPLOYMENT_ENV=kubernetes
+  - DEPLOYMENT_METHOD=kustomize
+  - POD_NAMESPACE=bmad-bot

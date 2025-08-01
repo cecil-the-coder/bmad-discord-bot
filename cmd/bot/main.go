@@ -519,41 +519,6 @@ func loadRateLimitConfig(aiProvider string) (monitor.ProviderConfig, error) {
 	return config, nil
 }
 
-// loadStatusConfig loads status management configuration from environment variables
-func loadStatusConfig() (bool, time.Duration, error) {
-	// Load status update enabled flag (default: true)
-	enabledStr := os.Getenv("BOT_STATUS_UPDATE_ENABLED")
-	if enabledStr == "" {
-		enabledStr = "true" // Default value
-	}
-
-	enabled, err := strconv.ParseBool(enabledStr)
-	if err != nil {
-		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_ENABLED: %s", enabledStr)
-	}
-
-	// Load status update interval (default: 30s)
-	intervalStr := os.Getenv("BOT_STATUS_UPDATE_INTERVAL")
-	if intervalStr == "" {
-		intervalStr = "30s" // Default value
-	}
-
-	interval, err := time.ParseDuration(intervalStr)
-	if err != nil {
-		return false, 0, fmt.Errorf("invalid BOT_STATUS_UPDATE_INTERVAL: %s", intervalStr)
-	}
-
-	if interval < time.Second {
-		return false, 0, fmt.Errorf("BOT_STATUS_UPDATE_INTERVAL must be at least 1 second: %s", intervalStr)
-	}
-
-	slog.Info("Status management configuration loaded",
-		"enabled", enabled,
-		"update_interval", interval)
-
-	return enabled, interval, nil
-}
-
 // ready event handler - called when bot connects and is ready
 func ready(s *discordgo.Session, event *discordgo.Ready) {
 	// Set bot status to "Online" upon successful connection
@@ -664,95 +629,6 @@ func loadMySQLConfig() (storage.MySQLConfig, error) {
 		"timeout", config.Timeout)
 
 	return config, nil
-}
-
-// loadKnowledgeBaseConfig loads knowledge base refresh configuration from environment variables
-func loadKnowledgeBaseConfig() (*service.Config, error) {
-	// Load enabled flag (default: true)
-	enabledStr := os.Getenv("BMAD_KB_REFRESH_ENABLED")
-	if enabledStr == "" {
-		enabledStr = "true" // Default value
-	}
-
-	enabled, err := strconv.ParseBool(enabledStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid BMAD_KB_REFRESH_ENABLED: %s", enabledStr)
-	}
-
-	// Load refresh interval in hours (default: 6)
-	intervalHoursStr := os.Getenv("BMAD_KB_REFRESH_INTERVAL_HOURS")
-	if intervalHoursStr == "" {
-		intervalHoursStr = "6" // Default value
-	}
-
-	intervalHours, err := strconv.Atoi(intervalHoursStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid BMAD_KB_REFRESH_INTERVAL_HOURS: %s", intervalHoursStr)
-	}
-
-	if intervalHours <= 0 {
-		return nil, fmt.Errorf("BMAD_KB_REFRESH_INTERVAL_HOURS must be positive: %d", intervalHours)
-	}
-
-	// Load remote URL (default: GitHub raw link)
-	remoteURL := os.Getenv("BMAD_KB_REMOTE_URL")
-	if remoteURL == "" {
-		remoteURL = "https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md"
-	}
-
-	config := &service.Config{
-		RemoteURL:       remoteURL,
-		LocalFilePath:   "internal/knowledge/bmad.md",
-		RefreshInterval: time.Duration(intervalHours) * time.Hour,
-		Enabled:         enabled,
-		HTTPTimeout:     30 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      time.Second,
-	}
-
-	slog.Info("Knowledge base configuration loaded",
-		"enabled", enabled,
-		"remote_url", remoteURL,
-		"local_file", config.LocalFilePath,
-		"interval_hours", intervalHours,
-		"http_timeout", config.HTTPTimeout)
-
-	return config, nil
-}
-
-// loadBMADStatusConfig loads BMAD status rotation configuration from environment variables
-func loadBMADStatusConfig() (bool, time.Duration, error) {
-	// Load BMAD status rotation enabled flag (default: true)
-	enabledStr := os.Getenv("BMAD_STATUS_ROTATION_ENABLED")
-	if enabledStr == "" {
-		enabledStr = "true" // Default value
-	}
-
-	enabled, err := strconv.ParseBool(enabledStr)
-	if err != nil {
-		return false, 0, fmt.Errorf("invalid BMAD_STATUS_ROTATION_ENABLED: %s", enabledStr)
-	}
-
-	// Load BMAD status rotation interval (default: 5m)
-	intervalStr := os.Getenv("BMAD_STATUS_ROTATION_INTERVAL")
-	if intervalStr == "" {
-		intervalStr = "5m" // Default value
-	}
-
-	interval, err := time.ParseDuration(intervalStr)
-	if err != nil {
-		return false, 0, fmt.Errorf("invalid BMAD_STATUS_ROTATION_INTERVAL: %s", intervalStr)
-	}
-
-	if interval < 30*time.Second {
-		return false, 0, fmt.Errorf("BMAD_STATUS_ROTATION_INTERVAL must be at least 30 seconds: %s", intervalStr)
-	}
-
-	slog.Info("BMAD status rotation configuration loaded",
-		"enabled", enabled,
-		"rotation_interval", interval)
-
-	return enabled, interval, nil
 }
 
 // ReplyMentionConfig holds configuration for reply mention behavior

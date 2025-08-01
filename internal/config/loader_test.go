@@ -300,7 +300,7 @@ func TestConfigurationMigrator_SeedDefaultConfigurations(t *testing.T) {
 
 	// Verify some default configurations were seeded
 	defaultChecks := map[string]string{
-		"AI_PROVIDER_GEMINI_RATE_LIMIT_PER_MINUTE": "30",
+		"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE": "60",
 		"BMAD_KB_REFRESH_ENABLED":                  "true",
 		"OLLAMA_HOST":                              "http://localhost:11434",
 		"BOT_STATUS_UPDATE_ENABLED":                "true",

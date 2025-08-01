@@ -303,18 +303,18 @@ func TestBackwardCompatibility_RateLimiter(t *testing.T) {
 		t.Error("Expected manager to be available through backward compatibility wrapper")
 	}
 
-	// Test that default Gemini provider is configured
-	status := manager.GetProviderStatus("gemini")
+	// Test that default Ollama provider is configured
+	status := manager.GetProviderStatus("ollama")
 	if status != "Normal" {
-		t.Errorf("Expected Normal status for default Gemini provider, got %s", status)
+		t.Errorf("Expected Normal status for default Ollama provider, got %s", status)
 	}
 
-	usage, limit := manager.GetProviderUsage("gemini")
+	usage, limit := manager.GetProviderUsage("ollama")
 	if limit != 60 {
-		t.Errorf("Expected default minute limit of 60 for Gemini, got %d", limit)
+		t.Errorf("Expected default minute limit of 60 for Ollama, got %d", limit)
 	}
 	if usage != 0 {
-		t.Errorf("Expected initial usage of 0 for Gemini, got %d", usage)
+		t.Errorf("Expected initial usage of 0 for Ollama, got %d", usage)
 	}
 }
 

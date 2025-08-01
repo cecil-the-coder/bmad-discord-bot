@@ -1172,18 +1172,12 @@ func (h *Handler) recordMessageState(m *discordgo.MessageCreate, isInThread bool
 	defer cancel()
 
 	var threadID *string
-	if isInThread {
-		threadID = &m.ChannelID
-	}
-
-	// For threads, we need to get the parent channel ID
 	var channelID string
+
 	if isInThread {
-		// Try to get parent channel from thread ownership or default to channel ID
-		channelID = m.ChannelID // This will be the thread ID for threads
-		// We'll use the thread ID as both channel and thread for simplicity
+		// For threads, use the thread ID as both channel and thread for simplicity
 		threadID = &m.ChannelID
-		channelID = m.ChannelID // Use thread ID as identifier
+		channelID = m.ChannelID
 	} else {
 		channelID = m.ChannelID
 		threadID = nil

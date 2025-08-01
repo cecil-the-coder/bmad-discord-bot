@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -112,7 +111,7 @@ func GetStatusCount() int {
 	return len(bmadStatuses)
 }
 
-// InitRandomSeed initializes the random seed
+// InitRandomSeed initializes the random seed (deprecated: rand.Seed is no longer needed in Go 1.20+)
 func InitRandomSeed() {
-	rand.Seed(time.Now().UnixNano())
+	// rand.Seed is deprecated as of Go 1.20 - the random number generator is automatically seeded
 }

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bmad-bot
+  labels:
+    name: bmad-bot
+    app: bmad-discord-bot
+    environment: production
+    security.policy: restricted
+  annotations:
+    description: "BMAD Discord Bot namespace for isolated deployment"

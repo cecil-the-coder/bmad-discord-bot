@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bmad-discord-bot
+  namespace: bmad-bot
+  labels:
+    app: bmad-discord-bot
+    version: v1.0
+    component: bot
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: bmad-discord-bot
+  template:
+    metadata:
+      labels:
+        app: bmad-discord-bot
+        version: v1.0
+        component: bot
+      annotations:
+        prometheus.io/scrape: "false"
+        co.elastic.logs/enabled: "true"
+    spec:
+      serviceAccountName: bmad-bot-sa
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: bmad-discord-bot
+        image: ghcr.io/cecil-the-coder/bmad-discord-bot/bmad-discord-bot:v1.0
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+            ephemeral-storage: "1Gi"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+            ephemeral-storage: "2Gi"
+        env:
+        - name: DATABASE_TYPE
+          value: "mysql"
+        envFrom:
+        - configMapRef:
+            name: bmad-bot-config
+        ports:
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          exec:
+            command:
+            - /app/main
+            - --health-check
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /app/main
+            - --health-check
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          exec:
+            command:
+            - /app/main
+            - --health-check
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 12
+        volumeMounts:
+        - name: secrets-volume
+          mountPath: /app/secrets
+          readOnly: true
+        - name: data-volume
+          mountPath: /app/data
+        - name: logs-volume
+          mountPath: /app/logs
+        - name: temp-volume
+          mountPath: /tmp
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: bmad-bot-data-pvc
+      - name: logs-volume
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: temp-volume
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: secrets-volume
+        secret:
+          secretName: bmad-bot-secrets
+          defaultMode: 0400
+      terminationGracePeriodSeconds: 30
+      restartPolicy: Always
+      nodeSelector:
+        kubernetes.io/os: linux

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 // MockStorageService implements storage.StorageService for testing
 type MockStorageService struct {
+	mu             sync.RWMutex
 	configurations map[string]*storage.Configuration
 	healthError    error
 	getError       error
@@ -74,6 +76,8 @@ func (m *MockStorageService) GetConfiguration(ctx context.Context, key string) (
 	if m.getError != nil {
 		return nil, m.getError
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	config, exists := m.configurations[key]
 	if !exists {
 		return nil, nil
@@ -89,6 +93,8 @@ func (m *MockStorageService) UpsertConfiguration(ctx context.Context, config *st
 		config.CreatedAt = time.Now().Unix()
 	}
 	config.UpdatedAt = time.Now().Unix()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.configurations[config.Key] = config
 	return nil
 }
@@ -97,6 +103,8 @@ func (m *MockStorageService) GetConfigurationsByCategory(ctx context.Context, ca
 	if m.getError != nil {
 		return nil, m.getError
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var result []*storage.Configuration
 	for _, config := range m.configurations {
 		if config.Category == category {
@@ -110,6 +118,8 @@ func (m *MockStorageService) GetAllConfigurations(ctx context.Context) ([]*stora
 	if m.getError != nil {
 		return nil, m.getError
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var result []*storage.Configuration
 	for _, config := range m.configurations {
 		result = append(result, config)
@@ -121,6 +131,8 @@ func (m *MockStorageService) DeleteConfiguration(ctx context.Context, key string
 	if m.deleteError != nil {
 		return m.deleteError
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.configurations[key]; !exists {
 		return NewConfigError(key, "configuration not found", nil)
 	}
@@ -146,6 +158,8 @@ func (m *MockStorageService) SetDeleteError(err error) {
 }
 
 func (m *MockStorageService) AddTestConfiguration(key, value, valueType, category, description string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.configurations[key] = &storage.Configuration{
 		Key:         key,
 		Value:       value,

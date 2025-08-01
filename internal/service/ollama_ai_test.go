@@ -160,7 +160,7 @@ func TestValidateModel(t *testing.T) {
 			responseStatus: http.StatusOK,
 			responseBody:   OllamaResponse{Error: "model not loaded"},
 			expectError:    true,
-			errorContains:  "Ollama API error: model not loaded",
+			errorContains:  "ollama API error: model not loaded",
 		},
 	}
 

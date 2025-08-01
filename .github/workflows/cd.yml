@@ -1,0 +1,180 @@
+name: Continuous Deployment
+
+on:
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types:
+      - completed
+    branches: [ main, master ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/bmad-discord-bot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Pull image for scanning
+      run: |
+        echo "Pulling image for Trivy scan: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}"
+        docker pull ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        exit-code: '0'
+      env:
+        TRIVY_USERNAME: ${{ github.actor }}
+        TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run container structure tests
+      run: |
+        # Download container-structure-test
+        curl -LO https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-arm64
+        chmod +x container-structure-test-linux-arm64
+        sudo mv container-structure-test-linux-arm64 /usr/local/bin/container-structure-test
+        
+        # Create basic structure test config
+        cat > container-tests.yaml << EOF
+        schemaVersion: 2.0.0
+        
+        commandTests:
+          - name: "health check works"
+            command: "/app/main"
+            args: ["--health-check"]
+            exitCode: 0
+        
+        fileExistenceTests:
+          - name: 'main binary exists'
+            path: '/app/main'
+            shouldExist: true
+            permissions: '-rwxr-xr-x'
+          - name: 'knowledge base exists'
+            path: '/app/internal/knowledge'
+            shouldExist: true
+          - name: 'data directory exists'
+            path: '/app/data'
+            shouldExist: true
+          - name: 'logs directory exists' 
+            path: '/app/logs'
+            shouldExist: true
+
+        metadataTest:
+          user: "node"
+          workdir: "/app"
+        EOF
+        
+        # Run structure tests
+        container-structure-test test \
+          --image ${{ fromJSON(steps.meta.outputs.json).tags[0] }} \
+          --config container-tests.yaml
+
+  create-release:
+    runs-on: ubuntu-24.04-arm
+    needs: deploy
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+      actions: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get the latest tag, or use empty string if no tags exist
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        echo "Latest tag: $LATEST_TAG"
+        
+        # Generate release notes from commits since last tag
+        if [ -z "$LATEST_TAG" ]; then
+          # No tags exist, get all commits
+          RELEASE_NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
+        else
+          # Tags exist, get commits since last tag
+          RELEASE_NOTES=$(git log $LATEST_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges)
+        fi
+        
+        if [ -z "$RELEASE_NOTES" ]; then
+          RELEASE_NOTES="- Initial release"
+        fi
+        
+        # Create multiline output
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ github.run_number }}
+        name: Release v${{ github.run_number }}
+        body: |
+          ## Changes in this release
+          ${{ steps.release_notes.outputs.notes }}
+          
+          ## Docker Image
+          ```bash
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ```
+          
+          ## Container SHA
+          - Image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}`
+        draft: false
+        prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}

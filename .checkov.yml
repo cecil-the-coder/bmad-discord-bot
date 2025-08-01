@@ -1,0 +1,2 @@
+skip-check:
+  - CKV_K8S_43  # Image should use digest - Skip for development workflow

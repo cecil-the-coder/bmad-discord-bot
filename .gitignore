@@ -47,3 +47,4 @@ bmad-knowledge-bot
 # Uncomment if you want to exclude from git
 # internal/knowledge/
 data
+workflow_logs

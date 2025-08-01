@@ -1,0 +1,57 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bmad-bot-network-policy
+  namespace: bmad-bot
+  labels:
+    app: bmad-discord-bot
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: bmad-discord-bot
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules - very restrictive since bot doesn't need incoming connections
+  ingress:
+  - from: []
+    ports: []
+  
+  # Egress rules - allow necessary outbound connections
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow HTTPS outbound for Discord API and Ollama
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  
+  # Allow HTTP outbound for health checks and API calls
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  
+  # Allow MySQL database connection
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mysql
+    ports:
+    - protocol: TCP
+      port: 3306
+  
+  # Allow external MySQL service connection
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 3306

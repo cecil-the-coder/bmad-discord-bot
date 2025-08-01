@@ -14,6 +14,7 @@ func TestNewSession(t *testing.T) {
 
 	if session == nil {
 		t.Error("Expected non-nil session")
+		return
 	}
 
 	if session.logger != logger {

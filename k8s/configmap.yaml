@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bmad-bot-config
+  namespace: bmad-bot
+  labels:
+    app: bmad-discord-bot
+    component: config
+data:
+  # Database Configuration
+  DATABASE_TYPE: "mysql"
+  MYSQL_HOST: "mysql-service"
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: "bmad_bot"
+  MYSQL_USERNAME: "bmad_user"
+  MYSQL_TIMEOUT: "30s"
+  
+  # AI Provider Configuration (Ollama only as per Story 2.11)
+  AI_PROVIDER: "ollama"
+  OLLAMA_HOST: "https://ollama"
+  OLLAMA_MODEL: "devstral"
+  OLLAMA_TIMEOUT: "30"
+  OLLAMA_QUALITY_MONITORING_ENABLED: "true"
+  OLLAMA_PROMPT_STYLE: "structured"
+  
+  # Optional Application Configuration
+  MESSAGE_RECOVERY_WINDOW_MINUTES: "5"
+  BMAD_KB_REFRESH_ENABLED: "true"
+  BMAD_KB_REFRESH_INTERVAL_HOURS: "6"
+  BMAD_KB_REMOTE_URL: "https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md"
+  BMAD_STATUS_ROTATION_ENABLED: "true"
+  BMAD_STATUS_ROTATION_INTERVAL: "5m"
+  AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE: "60"
+  AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY: "2000"
+  
+  # Logging Configuration
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
