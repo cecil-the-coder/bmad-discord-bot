@@ -329,7 +329,11 @@ func TestInitRandomSeed(t *testing.T) {
 	// This function is deprecated but we test it for coverage
 	// It should not panic and should complete successfully
 	InitRandomSeed()
+	// Call it multiple times to ensure it's stable
+	InitRandomSeed()
+	InitRandomSeed()
 	// No assertion needed since the function is effectively a no-op
+	t.Log("InitRandomSeed called successfully")
 }
 
 func TestStatusManager_LoadNextBatchWithInvalidActivityType(t *testing.T) {

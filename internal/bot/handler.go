@@ -94,6 +94,13 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 		return
 	}
 
+	// Check if this is a DM and handle accordingly
+	isDM := h.isDMChannel(s, m.ChannelID)
+	if isDM {
+		h.processDMMessage(s, m)
+		return
+	}
+
 	// Detect thread context for proper handling
 	isInThread := h.isMessageInThread(s, m.ChannelID)
 
@@ -1636,4 +1643,155 @@ func (h *Handler) processReactionTriggerInThread(s *discordgo.Session, m *discor
 		"thread_id", m.ChannelID,
 		"response_length", len(response),
 		"trigger_user", triggerUser)
+}
+
+// isDMChannel checks if a channel is a Direct Message channel
+func (h *Handler) isDMChannel(s *discordgo.Session, channelID string) bool {
+	// Check for nil session to prevent panic in tests
+	if s == nil || s.Ratelimiter == nil {
+		h.logger.Error("Session or ratelimiter is nil, cannot check DM status", "channel_id", channelID)
+		return false
+	}
+
+	// Get channel information to determine if it's a DM
+	channel, err := s.Channel(channelID)
+	if err != nil {
+		h.logger.Error("Failed to get channel information for DM check", "error", err, "channel_id", channelID)
+		return false
+	}
+
+	// Check if the channel type indicates it's a DM
+	return channel.Type == discordgo.ChannelTypeDM
+}
+
+// verifyGuildMembership checks if a user is a member of any server where the bot is active
+func (h *Handler) verifyGuildMembership(s *discordgo.Session, userID string) bool {
+	// Enumerate bot's active guilds
+	for _, guild := range s.State.Guilds {
+		// First check if user is in the guild's cached member list
+		if guild.Members != nil {
+			for _, member := range guild.Members {
+				if member.User != nil && member.User.ID == userID {
+					h.logger.Info("User found in guild (cached)",
+						"user_id", userID,
+						"guild_id", guild.ID,
+						"guild_name", guild.Name)
+					return true
+				}
+			}
+		}
+
+		// If not found in cache, try API call (only in production environment)
+		// This provides fallback for when member cache is incomplete
+		if s.Token != "" {
+			_, err := s.GuildMember(guild.ID, userID)
+			if err == nil {
+				h.logger.Info("User found in guild (API)",
+					"user_id", userID,
+					"guild_id", guild.ID,
+					"guild_name", guild.Name)
+				return true
+			}
+		}
+	}
+
+	h.logger.Info("User not found in any bot guilds", "user_id", userID)
+	return false
+}
+
+// processDMMessage handles Direct Messages from users
+func (h *Handler) processDMMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	h.logger.Info("Processing DM",
+		"author", m.Author.Username,
+		"user_id", m.Author.ID,
+		"content_length", len(m.Content))
+
+	// Verify that the user is a member of a server where the bot is active
+	if !h.verifyGuildMembership(s, m.Author.ID) {
+		// Send informative response for non-members
+		response := "Hello! I'm the BMAD Knowledge Bot. To interact with me, you need to be a member of a server where I'm active. Please ask a server administrator to invite me to your server, or join a server where I'm already present."
+		if _, err := s.ChannelMessageSend(m.ChannelID, response); err != nil {
+			h.logger.Error("Failed to send non-member response", "error", err, "user_id", m.Author.ID)
+		} else {
+			h.logger.Info("Sent non-member response", "user_id", m.Author.ID)
+		}
+		return
+	}
+
+	// Record message state for DM (AC 2.13.5)
+	h.recordMessageState(m, false) // DMs are never "in thread"
+
+	// Process DM query (no mention required in DMs - AC 2.13.3)
+	queryText := strings.TrimSpace(m.Content)
+	if queryText == "" {
+		h.logger.Info("Empty DM received", "user_id", m.Author.ID)
+		return
+	}
+
+	h.logger.Info("Processing DM query", "user_id", m.Author.ID, "query_length", len(queryText))
+
+	// Check if we have conversation history for this DM channel (AC 2.13.4)
+	dmHistory, historyErr := h.fetchDMHistory(s, m.ChannelID, 50)
+
+	var response string
+	var err error
+
+	if historyErr != nil {
+		h.logger.Error("Failed to fetch DM history, using basic query",
+			"error", historyErr, "channel_id", m.ChannelID)
+		// Fallback to basic query if history retrieval fails
+		response, err = h.aiService.QueryAI(queryText)
+	} else if len(dmHistory) > 1 { // More than just the current message
+		// Use contextual query with DM conversation history
+		conversationHistory := h.formatConversationHistory(dmHistory)
+		h.logger.Info("Using contextual DM query with history",
+			"history_messages", len(dmHistory),
+			"history_length", len(conversationHistory))
+		response, err = h.aiService.QueryWithContext(queryText, conversationHistory)
+	} else {
+		// First message in DM conversation
+		response, err = h.aiService.QueryAI(queryText)
+	}
+
+	if err != nil {
+		h.logger.Error("AI service error for DM", "error", err, "user_id", m.Author.ID)
+		errorMsg := "I'm sorry, I encountered an error while processing your request. Please try again later."
+		if _, err := s.ChannelMessageSend(m.ChannelID, errorMsg); err != nil {
+			h.logger.Error("Failed to send DM error response", "error", err, "user_id", m.Author.ID)
+		}
+		return
+	}
+
+	// Send response directly in DM channel (AC 2.13.5)
+	if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
+		h.logger.Error("Failed to send DM response", "error", err, "user_id", m.Author.ID)
+	} else {
+		h.logger.Info("DM response sent successfully",
+			"user_id", m.Author.ID,
+			"response_length", len(response))
+	}
+}
+
+// fetchDMHistory retrieves message history from a DM channel for conversation context
+func (h *Handler) fetchDMHistory(s *discordgo.Session, channelID string, limit int) ([]*discordgo.Message, error) {
+	h.logger.Info("Fetching DM history", "channel_id", channelID, "limit", limit)
+
+	// Fetch messages from the DM channel (Discord returns in reverse chronological order)
+	messages, err := s.ChannelMessages(channelID, limit, "", "", "")
+	if err != nil {
+		h.logger.Error("Failed to fetch DM messages", "error", err, "channel_id", channelID)
+		return nil, fmt.Errorf("failed to fetch DM messages: %w", err)
+	}
+
+	// Reverse to chronological order and return all messages for DM context
+	var orderedMessages []*discordgo.Message
+	for i := len(messages) - 1; i >= 0; i-- {
+		orderedMessages = append(orderedMessages, messages[i])
+	}
+
+	h.logger.Info("DM history retrieved",
+		"total_messages", len(messages),
+		"channel_id", channelID)
+
+	return orderedMessages, nil
 }
