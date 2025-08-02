@@ -430,3 +430,93 @@ func BenchmarkHybridConfigService_GetConfig_Environment(b *testing.B) {
 		_, _ = service.GetConfig(ctx, "BENCHMARK_ENV_KEY")
 	}
 }
+
+func TestHybridConfigService_Close_WithInitializedDatabase(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewHybridConfigService(mockStorage)
+
+	ctx := context.Background()
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Test close with initialized database service
+	err = service.Close()
+	if err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+}
+
+func TestHybridConfigService_GetConfigBool_EdgeCases(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewHybridConfigService(mockStorage)
+
+	ctx := context.Background()
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	testCases := []struct {
+		name     string
+		envKey   string
+		envValue string
+		expected bool
+		hasError bool
+	}{
+		{"valid_true", "TEST_BOOL_TRUE", "true", true, false},
+		{"valid_false", "TEST_BOOL_FALSE", "false", false, false},
+		{"valid_1", "TEST_BOOL_1", "1", true, false},
+		{"valid_0", "TEST_BOOL_0", "0", false, false},
+		{"invalid_value", "TEST_BOOL_INVALID", "maybe", false, true},
+		{"empty_value", "TEST_BOOL_EMPTY", "", false, true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Setenv(tc.envKey, tc.envValue)
+			defer os.Unsetenv(tc.envKey)
+
+			result, err := service.GetConfigBool(ctx, tc.envKey)
+
+			if tc.hasError {
+				if err == nil {
+					t.Errorf("Expected error for case %s, got nil", tc.name)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error for case %s: %v", tc.name, err)
+				}
+				if result != tc.expected {
+					t.Errorf("Case %s: expected %v, got %v", tc.name, tc.expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestHybridConfigService_GetConfigWithDefault_DatabaseFallback(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewHybridConfigService(mockStorage)
+
+	ctx := context.Background()
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Test environment variable not set, should try database
+	key := "TEST_DB_FALLBACK_KEY"
+	defaultValue := "default_test_value"
+
+	// Ensure env var is not set
+	os.Unsetenv(key)
+
+	result := service.GetConfigWithDefault(ctx, key, defaultValue)
+
+	// Should return default since neither env nor database has the value
+	if result != defaultValue {
+		t.Errorf("Expected default value %s, got %s", defaultValue, result)
+	}
+}

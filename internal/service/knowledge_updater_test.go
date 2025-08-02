@@ -14,13 +14,13 @@ import (
 
 func TestNewHTTPKnowledgeUpdater(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
+		RetryAttempts:      3,
+		RetryDelay:         time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -34,8 +34,8 @@ func TestNewHTTPKnowledgeUpdater(t *testing.T) {
 		t.Errorf("Expected remote URL %s, got %s", config.RemoteURL, updater.remoteURL)
 	}
 
-	if updater.localFilePath != config.LocalFilePath {
-		t.Errorf("Expected local file path %s, got %s", config.LocalFilePath, updater.localFilePath)
+	if updater.ephemeralCachePath != config.EphemeralCachePath {
+		t.Errorf("Expected local file path %s, got %s", config.EphemeralCachePath, updater.ephemeralCachePath)
 	}
 
 	if updater.refreshInterval != config.RefreshInterval {
@@ -57,13 +57,13 @@ func TestHTTPKnowledgeUpdater_FetchRemoteContent(t *testing.T) {
 	defer server.Close()
 
 	config := Config{
-		RemoteURL:       server.URL,
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      time.Millisecond * 100,
+		RemoteURL:          server.URL,
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
+		RetryAttempts:      3,
+		RetryDelay:         time.Millisecond * 100,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -86,13 +86,13 @@ func TestHTTPKnowledgeUpdater_FetchRemoteContent_ServerError(t *testing.T) {
 	defer server.Close()
 
 	config := Config{
-		RemoteURL:       server.URL,
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
-		RetryAttempts:   2,
-		RetryDelay:      time.Millisecond * 10,
+		RemoteURL:          server.URL,
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
+		RetryAttempts:      2,
+		RetryDelay:         time.Millisecond * 10,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -120,17 +120,17 @@ func TestHTTPKnowledgeUpdater_ReadLocalContent(t *testing.T) {
 	}
 
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   testFile,
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: testFile,
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	updater := NewHTTPKnowledgeUpdater(config, logger)
 
-	content, err := updater.readLocalContent()
+	content, err := updater.readEphemeralCache()
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -142,17 +142,17 @@ func TestHTTPKnowledgeUpdater_ReadLocalContent(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_ReadLocalContent_FileNotExists(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/nonexistent/file.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/nonexistent/file.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	updater := NewHTTPKnowledgeUpdater(config, logger)
 
-	content, err := updater.readLocalContent()
+	content, err := updater.readEphemeralCache()
 	if err != nil {
 		t.Fatalf("Expected no error for nonexistent file, got %v", err)
 	}
@@ -164,11 +164,11 @@ func TestHTTPKnowledgeUpdater_ReadLocalContent_FileNotExists(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_ContentChanged(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -199,11 +199,11 @@ func TestHTTPKnowledgeUpdater_ContentChanged(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_ExtractKnowledgeBase(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -239,11 +239,11 @@ func TestHTTPKnowledgeUpdater_UpdateLocalContent(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "test_kb.md")
 
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   testFile,
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: testFile,
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -252,7 +252,7 @@ func TestHTTPKnowledgeUpdater_UpdateLocalContent(t *testing.T) {
 	// Test creating new file
 	remoteContent := "# New Knowledge Base\n\nNew content here."
 
-	err := updater.updateLocalContent(remoteContent)
+	err := updater.updateEphemeralCache(remoteContent)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -267,9 +267,8 @@ func TestHTTPKnowledgeUpdater_UpdateLocalContent(t *testing.T) {
 		t.Errorf("Expected content %q, got %q", remoteContent, string(content))
 	}
 
-	// Test updating existing file with system prompt preservation
-	systemPrompt := "System: You are a helpful assistant."
-	existingContent := systemPrompt + "\n# Old Knowledge Base\n\nOld content."
+	// Test updating existing ephemeral cache file (overwrites completely)
+	existingContent := "# Old Knowledge Base\n\nOld content."
 
 	err = os.WriteFile(testFile, []byte(existingContent), 0644)
 	if err != nil {
@@ -278,20 +277,19 @@ func TestHTTPKnowledgeUpdater_UpdateLocalContent(t *testing.T) {
 
 	newRemoteContent := "# Updated Knowledge Base\n\nUpdated content."
 
-	err = updater.updateLocalContent(newRemoteContent)
+	err = updater.updateEphemeralCache(newRemoteContent)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// Verify system prompt was preserved and content was updated
+	// Verify content was completely replaced (ephemeral cache overwrites)
 	updatedContent, err := os.ReadFile(testFile)
 	if err != nil {
 		t.Fatalf("Failed to read updated file: %v", err)
 	}
 
-	expectedUpdatedContent := systemPrompt + "\n" + newRemoteContent
-	if string(updatedContent) != expectedUpdatedContent {
-		t.Errorf("Expected content %q, got %q", expectedUpdatedContent, string(updatedContent))
+	if string(updatedContent) != newRemoteContent {
+		t.Errorf("Expected content %q, got %q", newRemoteContent, string(updatedContent))
 	}
 }
 
@@ -309,13 +307,13 @@ func TestHTTPKnowledgeUpdater_RefreshNow_Integration(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "test_kb.md")
 
 	config := Config{
-		RemoteURL:       server.URL,
-		LocalFilePath:   testFile,
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      time.Millisecond * 100,
+		RemoteURL:          server.URL,
+		EphemeralCachePath: testFile,
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
+		RetryAttempts:      3,
+		RetryDelay:         time.Millisecond * 100,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -358,11 +356,11 @@ func TestHTTPKnowledgeUpdater_RefreshNow_Integration(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_StartStop(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Millisecond * 100, // Very short for testing
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Millisecond * 100, // Very short for testing
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -389,11 +387,11 @@ func TestHTTPKnowledgeUpdater_StartStop(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_StartDisabled(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         false, // Disabled
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            false, // Disabled
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -415,11 +413,11 @@ func TestHTTPKnowledgeUpdater_StartDisabled(t *testing.T) {
 
 func TestHTTPKnowledgeUpdater_GetLastRefresh(t *testing.T) {
 	config := Config{
-		RemoteURL:       "https://example.com/kb.md",
-		LocalFilePath:   "/tmp/test_kb.md",
-		RefreshInterval: time.Hour,
-		Enabled:         true,
-		HTTPTimeout:     10 * time.Second,
+		RemoteURL:          "https://example.com/kb.md",
+		EphemeralCachePath: "/tmp/test_kb.md",
+		RefreshInterval:    time.Hour,
+		Enabled:            true,
+		HTTPTimeout:        10 * time.Second,
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))

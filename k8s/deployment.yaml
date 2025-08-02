@@ -58,16 +58,11 @@ spec:
             memory: "512Mi"
             cpu: "500m"
             ephemeral-storage: "2Gi"
-        env:
-        - name: DATABASE_TYPE
-          value: "mysql"
+        env: []
         envFrom:
         - configMapRef:
             name: bmad-bot-config
-        ports:
-        - name: health
-          containerPort: 8080
-          protocol: TCP
+        # No ports needed - bot uses Discord WebSocket API and command-based health checks
         livenessProbe:
           exec:
             command:
@@ -102,16 +97,11 @@ spec:
         - name: secrets-volume
           mountPath: /app/secrets
           readOnly: true
-        - name: data-volume
-          mountPath: /app/data
         - name: logs-volume
           mountPath: /app/logs
         - name: temp-volume
           mountPath: /tmp
       volumes:
-      - name: data-volume
-        persistentVolumeClaim:
-          claimName: bmad-bot-data-pvc
       - name: logs-volume
         emptyDir:
           sizeLimit: 1Gi

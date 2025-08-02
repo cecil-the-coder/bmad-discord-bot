@@ -14,19 +14,19 @@ resources:
 - serviceaccount.yaml
 - configmap.yaml
 - secret.yaml
-- persistentvolume.yaml
 - deployment.yaml
 - networkpolicy.yaml
 - hpa.yaml
 
 # Common labels applied to all resources
-commonLabels:
-  app.kubernetes.io/name: bmad-discord-bot
-  app.kubernetes.io/instance: bmad-bot
-  app.kubernetes.io/version: "1.0"
-  app.kubernetes.io/component: discord-bot
-  app.kubernetes.io/part-of: bmad-platform
-  app.kubernetes.io/managed-by: kustomize
+labels:
+- pairs:
+    app.kubernetes.io/name: bmad-discord-bot
+    app.kubernetes.io/instance: bmad-bot
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/component: discord-bot
+    app.kubernetes.io/part-of: bmad-platform
+    app.kubernetes.io/managed-by: kustomize
 
 # Common annotations applied to all resources
 commonAnnotations:

@@ -14,8 +14,8 @@ type DiscordSession interface {
 	UpdateStatusComplex(data discordgo.UpdateStatusData) error
 }
 
-// StatusManager defines the interface for Discord presence management
-type StatusManager interface {
+// DiscordStatusManager defines the interface for Discord presence management
+type DiscordStatusManager interface {
 	// UpdateStatusFromRateLimit updates Discord status based on rate limit state
 	UpdateStatusFromRateLimit(providerID string, status string) error
 
@@ -32,8 +32,8 @@ type StatusManager interface {
 	GetCurrentStatus() (discordgo.Status, *discordgo.Activity)
 }
 
-// DiscordStatusManager implements the StatusManager interface
-type DiscordStatusManager struct {
+// DiscordStatusManagerImpl implements the DiscordStatusManager interface
+type DiscordStatusManagerImpl struct {
 	session          BotSession
 	logger           *slog.Logger
 	mutex            sync.RWMutex
@@ -44,8 +44,8 @@ type DiscordStatusManager struct {
 }
 
 // NewDiscordStatusManager creates a new Discord status manager
-func NewDiscordStatusManager(session BotSession, logger *slog.Logger) *DiscordStatusManager {
-	return &DiscordStatusManager{
+func NewDiscordStatusManager(session BotSession, logger *slog.Logger) *DiscordStatusManagerImpl {
+	return &DiscordStatusManagerImpl{
 		session:          session,
 		logger:           logger,
 		currentStatus:    discordgo.StatusOnline,
@@ -55,14 +55,14 @@ func NewDiscordStatusManager(session BotSession, logger *slog.Logger) *DiscordSt
 }
 
 // SetDebounceInterval configures the minimum time between status updates
-func (dsm *DiscordStatusManager) SetDebounceInterval(interval time.Duration) {
+func (dsm *DiscordStatusManagerImpl) SetDebounceInterval(interval time.Duration) {
 	dsm.mutex.Lock()
 	defer dsm.mutex.Unlock()
 	dsm.debounceInterval = interval
 }
 
 // UpdateStatusFromRateLimit updates Discord status based on rate limit state
-func (dsm *DiscordStatusManager) UpdateStatusFromRateLimit(providerID string, status string) error {
+func (dsm *DiscordStatusManagerImpl) UpdateStatusFromRateLimit(providerID string, status string) error {
 	dsm.mutex.Lock()
 	defer dsm.mutex.Unlock()
 
@@ -107,14 +107,14 @@ func (dsm *DiscordStatusManager) UpdateStatusFromRateLimit(providerID string, st
 }
 
 // SetOnline sets the bot status to Online (Green) with custom activity
-func (dsm *DiscordStatusManager) SetOnline(activity string) error {
+func (dsm *DiscordStatusManagerImpl) SetOnline(activity string) error {
 	dsm.mutex.Lock()
 	defer dsm.mutex.Unlock()
 	return dsm.setOnlineLocked(activity)
 }
 
 // setOnlineLocked sets online status without acquiring lock (internal method)
-func (dsm *DiscordStatusManager) setOnlineLocked(activity string) error {
+func (dsm *DiscordStatusManagerImpl) setOnlineLocked(activity string) error {
 	activityObj := &discordgo.Activity{
 		Name: activity,
 		Type: discordgo.ActivityTypeGame,
@@ -132,14 +132,14 @@ func (dsm *DiscordStatusManager) setOnlineLocked(activity string) error {
 }
 
 // SetIdle sets the bot status to Idle (Yellow) with custom activity
-func (dsm *DiscordStatusManager) SetIdle(activity string) error {
+func (dsm *DiscordStatusManagerImpl) SetIdle(activity string) error {
 	dsm.mutex.Lock()
 	defer dsm.mutex.Unlock()
 	return dsm.setIdleLocked(activity)
 }
 
 // setIdleLocked sets idle status without acquiring lock (internal method)
-func (dsm *DiscordStatusManager) setIdleLocked(activity string) error {
+func (dsm *DiscordStatusManagerImpl) setIdleLocked(activity string) error {
 	activityObj := &discordgo.Activity{
 		Name: activity,
 		Type: discordgo.ActivityTypeGame,
@@ -157,14 +157,14 @@ func (dsm *DiscordStatusManager) setIdleLocked(activity string) error {
 }
 
 // SetDoNotDisturb sets the bot status to Do Not Disturb (Red) with custom activity
-func (dsm *DiscordStatusManager) SetDoNotDisturb(activity string) error {
+func (dsm *DiscordStatusManagerImpl) SetDoNotDisturb(activity string) error {
 	dsm.mutex.Lock()
 	defer dsm.mutex.Unlock()
 	return dsm.setDoNotDisturbLocked(activity)
 }
 
 // setDoNotDisturbLocked sets DND status without acquiring lock (internal method)
-func (dsm *DiscordStatusManager) setDoNotDisturbLocked(activity string) error {
+func (dsm *DiscordStatusManagerImpl) setDoNotDisturbLocked(activity string) error {
 	activityObj := &discordgo.Activity{
 		Name: activity,
 		Type: discordgo.ActivityTypeGame,
@@ -182,7 +182,7 @@ func (dsm *DiscordStatusManager) setDoNotDisturbLocked(activity string) error {
 }
 
 // GetCurrentStatus returns the current Discord status and activity
-func (dsm *DiscordStatusManager) GetCurrentStatus() (discordgo.Status, *discordgo.Activity) {
+func (dsm *DiscordStatusManagerImpl) GetCurrentStatus() (discordgo.Status, *discordgo.Activity) {
 	dsm.mutex.RLock()
 	defer dsm.mutex.RUnlock()
 

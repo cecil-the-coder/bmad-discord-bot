@@ -67,7 +67,7 @@ func main() {
 	var statusInterval time.Duration
 
 	// Read and validate database configuration
-	databaseType, databasePath, recoveryWindowMinutes, err := loadDatabaseConfig()
+	recoveryWindowMinutes, err := loadDatabaseConfig()
 	if err != nil {
 		slog.Error("Failed to load database configuration", "error", err)
 		os.Exit(1)
@@ -90,26 +90,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize storage service
-	var storageService storage.StorageService
-	if databaseType == "mysql" {
-		mysqlConfig, err := loadMySQLConfig()
-		if err != nil {
-			slog.Error("Failed to load MySQL configuration", "error", err)
-			os.Exit(1)
-		}
-		storageService = storage.NewMySQLStorageService(mysqlConfig)
-		slog.Info("Using MySQL storage service",
-			"host", mysqlConfig.Host,
-			"port", mysqlConfig.Port,
-			"database", mysqlConfig.Database)
-	} else {
-		storageService = storage.NewSQLiteStorageService(databasePath)
-		slog.Info("Using SQLite storage service", "database_path", databasePath)
+	// Initialize MySQL storage service (only supported database type)
+	mysqlConfig, err := loadMySQLConfig()
+	if err != nil {
+		slog.Error("Failed to load MySQL configuration", "error", err)
+		os.Exit(1)
 	}
+	storageService := storage.NewMySQLStorageService(mysqlConfig)
+	slog.Info("Using MySQL storage service",
+		"host", mysqlConfig.Host,
+		"port", mysqlConfig.Port,
+		"database", mysqlConfig.Database)
 
 	if err := storageService.Initialize(context.Background()); err != nil {
-		slog.Error("Failed to initialize storage service", "error", err, "type", databaseType)
+		slog.Error("Failed to initialize storage service", "error", err, "type", "mysql")
 		os.Exit(1)
 	}
 	defer func() {
@@ -118,7 +112,14 @@ func main() {
 		}
 	}()
 
-	slog.Info("Storage service initialized successfully", "type", databaseType)
+	slog.Info("Storage service initialized successfully", "type", "mysql")
+
+	// Run data migration from file-based storage to database
+	migrationService := storage.NewMigrationService(storageService, logger)
+	if err := migrationService.MigrateAllData(context.Background()); err != nil {
+		slog.Error("Failed to migrate data", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize configuration service with database backend and environment fallback
 	configService := config.NewHybridConfigService(storageService)
@@ -261,16 +262,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load BMAD statuses for rotation
-	statusFilePath := "data/bmad_statuses.txt"
-	if err := bot.LoadBMADStatuses(statusFilePath, logger); err != nil {
-		slog.Warn("Failed to load BMAD statuses", "error", err, "file", statusFilePath)
-		slog.Info("Using fallback status system")
-	} else {
-		slog.Info("BMAD statuses loaded successfully", "count", bot.GetStatusCount())
-	}
-
-	// Read BMAD status rotation configuration using ConfigService
+	// Read BMAD status rotation configuration using ConfigService first
 	bmadStatusEnabled := configService.GetConfigBoolWithDefault(context.Background(), "BMAD_STATUS_ROTATION_ENABLED", true)
 	bmadStatusIntervalStr := configService.GetConfigWithDefault(context.Background(), "BMAD_STATUS_ROTATION_INTERVAL", "5m")
 	bmadStatusInterval, err := time.ParseDuration(bmadStatusIntervalStr)
@@ -283,6 +275,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize BMAD status manager with database backend
+	// Calculate batch size: 5 times the number of rotations in the status change interval
+	batchSize := 25 // Default batch size (STATUS_CHANGE_INTERVAL * 5)
+
+	bot.InitializeStatusManager(storageService, logger, batchSize)
+	slog.Info("BMAD status manager initialized",
+		"batch_size", batchSize,
+		"rotation_interval", bmadStatusInterval)
+
 	// Initialize BMAD status rotation if enabled
 	var statusRotator *bot.StatusRotator
 	if bmadStatusEnabled {
@@ -292,7 +293,7 @@ func main() {
 		slog.Info("BMAD status rotation started",
 			"enabled", bmadStatusEnabled,
 			"interval", bmadStatusInterval,
-			"total_statuses", bot.GetStatusCount())
+			"batch_size", batchSize)
 	} else {
 		slog.Info("BMAD status rotation disabled by configuration")
 	}
@@ -535,23 +536,8 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 }
 
 // loadDatabaseConfig loads database configuration from environment variables
-func loadDatabaseConfig() (string, string, int, error) {
-	// Load database type (default: "sqlite")
-	databaseType := os.Getenv("DATABASE_TYPE")
-	if databaseType == "" {
-		databaseType = "sqlite" // Default value for backward compatibility
-	}
-
-	// Validate database type
-	if databaseType != "sqlite" && databaseType != "mysql" {
-		return "", "", 0, fmt.Errorf("invalid DATABASE_TYPE: %s (supported: sqlite, mysql)", databaseType)
-	}
-
-	// Load database path (only needed for SQLite, default: "./data/bot_state.db")
-	databasePath := os.Getenv("DATABASE_PATH")
-	if databasePath == "" {
-		databasePath = "./data/bot_state.db" // Default value
-	}
+func loadDatabaseConfig() (int, error) {
+	// MySQL is now the only supported database type - no DATABASE_TYPE or DATABASE_PATH needed
 
 	// Load message recovery window in minutes (default: 5)
 	recoveryWindowStr := os.Getenv("MESSAGE_RECOVERY_WINDOW_MINUTES")
@@ -561,19 +547,18 @@ func loadDatabaseConfig() (string, string, int, error) {
 
 	recoveryWindowMinutes, err := strconv.Atoi(recoveryWindowStr)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("invalid MESSAGE_RECOVERY_WINDOW_MINUTES: %s", recoveryWindowStr)
+		return 0, fmt.Errorf("invalid MESSAGE_RECOVERY_WINDOW_MINUTES: %s", recoveryWindowStr)
 	}
 
 	if recoveryWindowMinutes < 0 {
-		return "", "", 0, fmt.Errorf("MESSAGE_RECOVERY_WINDOW_MINUTES must be non-negative: %d", recoveryWindowMinutes)
+		return 0, fmt.Errorf("MESSAGE_RECOVERY_WINDOW_MINUTES must be non-negative: %d", recoveryWindowMinutes)
 	}
 
 	slog.Info("Database configuration loaded",
-		"database_type", databaseType,
-		"database_path", databasePath,
+		"database_type", "mysql",
 		"recovery_window_minutes", recoveryWindowMinutes)
 
-	return databaseType, databasePath, recoveryWindowMinutes, nil
+	return recoveryWindowMinutes, nil
 }
 
 // loadMySQLConfig loads MySQL-specific configuration from environment variables
@@ -834,19 +819,19 @@ func loadKnowledgeBaseConfigFromService(configService config.ConfigService) (*se
 		"https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md")
 
 	config := &service.Config{
-		RemoteURL:       remoteURL,
-		LocalFilePath:   "internal/knowledge/bmad.md",
-		RefreshInterval: time.Duration(intervalHours) * time.Hour,
-		Enabled:         enabled,
-		HTTPTimeout:     30 * time.Second,
-		RetryAttempts:   3,
-		RetryDelay:      time.Second,
+		RemoteURL:          remoteURL,
+		EphemeralCachePath: "/tmp/bmad-kb-cache.md",
+		RefreshInterval:    time.Duration(intervalHours) * time.Hour,
+		Enabled:            enabled,
+		HTTPTimeout:        30 * time.Second,
+		RetryAttempts:      3,
+		RetryDelay:         time.Second,
 	}
 
 	slog.Info("Knowledge base configuration loaded from ConfigService",
 		"enabled", enabled,
 		"remote_url", remoteURL,
-		"local_file", config.LocalFilePath,
+		"ephemeral_cache", config.EphemeralCachePath,
 		"interval_hours", intervalHours,
 		"http_timeout", config.HTTPTimeout)
 

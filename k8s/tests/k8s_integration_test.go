@@ -49,9 +49,6 @@ func TestKubernetesManifests(t *testing.T) {
 		testDeploymentManifest(t, ctx, client)
 	})
 
-	t.Run("PersistentVolumeClaim", func(t *testing.T) {
-		testPVCManifest(t, ctx, client)
-	})
 }
 
 func getKubernetesClient(t *testing.T) kubernetes.Interface {
@@ -205,28 +202,6 @@ func testDeploymentManifest(t *testing.T, ctx context.Context, client kubernetes
 	}
 }
 
-func testPVCManifest(t *testing.T, ctx context.Context, client kubernetes.Interface) {
-	// Load PVC manifest
-	manifest := loadManifest(t, "../persistentvolume.yaml")
-
-	// Split the manifest by "---" to handle multiple resources
-	manifests := splitYAMLManifests(manifest)
-	require.GreaterOrEqual(t, len(manifests), 1, "Expected at least 1 resource in PVC manifest")
-
-	var pvc corev1.PersistentVolumeClaim
-	err := yaml.Unmarshal(manifests[0], &pvc)
-	require.NoError(t, err, "Failed to unmarshal PVC manifest")
-
-	// Validate PVC properties
-	assert.Equal(t, "bmad-bot-data-pvc", pvc.Name)
-	assert.Equal(t, "bmad-bot", pvc.Namespace)
-	assert.Contains(t, pvc.Spec.AccessModes, corev1.ReadWriteOnce)
-
-	// Validate storage request
-	storageRequest := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
-	assert.Equal(t, "1Gi", storageRequest.String())
-}
-
 // TestKustomizeConfiguration tests the kustomization.yaml file
 func TestKustomizeConfiguration(t *testing.T) {
 	// Load kustomization manifest
@@ -253,7 +228,6 @@ func TestKustomizeConfiguration(t *testing.T) {
 		"serviceaccount.yaml",
 		"configmap.yaml",
 		"secret.yaml",
-		"persistentvolume.yaml",
 		"deployment.yaml",
 		"networkpolicy.yaml",
 		"hpa.yaml",

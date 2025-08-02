@@ -100,12 +100,6 @@ jobs:
             path: '/app/main'
             shouldExist: true
             permissions: '-rwxr-xr-x'
-          - name: 'knowledge base exists'
-            path: '/app/internal/knowledge'
-            shouldExist: true
-          - name: 'data directory exists'
-            path: '/app/data'
-            shouldExist: true
           - name: 'logs directory exists' 
             path: '/app/logs'
             shouldExist: true

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go/modules/mysql"
 )
 
 // MockAIService implements the AIService interface for testing
@@ -1290,12 +1290,40 @@ func TestHandler_MultiUserThreadDetection(t *testing.T) {
 
 // Helper functions for storage testing
 
-func setupTestStorage(t *testing.T) *storage.SQLiteStorageService {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test.db")
+func setupTestStorage(t *testing.T) *storage.MySQLStorageService {
+	ctx := context.Background()
 
-	service := storage.NewSQLiteStorageService(dbPath)
-	err := service.Initialize(context.Background())
+	// Use testcontainers to create a MySQL instance for testing
+	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0",
+		mysql.WithDatabase("test"),
+		mysql.WithUsername("root"),
+		mysql.WithPassword("test"),
+	)
+	require.NoError(t, err)
+
+	// Clean up container when test finishes
+	t.Cleanup(func() {
+		mysqlContainer.Terminate(ctx)
+	})
+
+	// Get connection details
+	host, err := mysqlContainer.Host(ctx)
+	require.NoError(t, err)
+
+	port, err := mysqlContainer.MappedPort(ctx, "3306")
+	require.NoError(t, err)
+
+	config := storage.MySQLConfig{
+		Host:     host,
+		Port:     port.Port(),
+		Database: "test",
+		Username: "root",
+		Password: "test",
+		Timeout:  "30s",
+	}
+
+	service := storage.NewMySQLStorageService(config)
+	err = service.Initialize(ctx)
 	require.NoError(t, err)
 
 	return service
@@ -1318,7 +1346,7 @@ func TestHandler_MessageStatePersistence(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
-	storageService := handler.storageService.(*storage.SQLiteStorageService)
+	storageService := handler.storageService.(*storage.MySQLStorageService)
 
 	// Create a mock message
 	message := &discordgo.MessageCreate{
@@ -1388,7 +1416,7 @@ func TestHandler_MessageRecovery(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
-	storageService := handler.storageService.(*storage.SQLiteStorageService)
+	storageService := handler.storageService.(*storage.MySQLStorageService)
 
 	t.Run("skips_recovery_with_no_states", func(t *testing.T) {
 		// Test recovery with empty database
@@ -2208,7 +2236,7 @@ func TestHandler_CompleteWorkflowWithStorage(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
 	handler := newTestHandlerWithStorage(t, logger, mockAI)
-	storageService := handler.storageService.(*storage.SQLiteStorageService)
+	storageService := handler.storageService.(*storage.MySQLStorageService)
 
 	botID := "bot123"
 	channelID := "channel456"

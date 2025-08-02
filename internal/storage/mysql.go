@@ -175,11 +175,7 @@ func (s *MySQLStorageService) Initialize(ctx context.Context) error {
 	s.db.SetMaxIdleConns(5)
 	s.db.SetConnMaxLifetime(time.Hour)
 
-	// Initialize schema versioning
-	schemaManager := NewSchemaManager(s.db)
-	if err := schemaManager.InitializeVersioning(ctx); err != nil {
-		return fmt.Errorf("failed to initialize schema versioning: %w", err)
-	}
+	// Schema is managed through table creation SQL - versioning removed for simplicity
 
 	// Create tables
 	if err := s.createTables(ctx); err != nil {
@@ -226,6 +222,16 @@ func (s *MySQLStorageService) createTables(ctx context.Context) error {
 			created_at BIGINT NOT NULL,
 			updated_at BIGINT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS bot_status_messages (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			activity_type VARCHAR(50) NOT NULL,
+			status_text VARCHAR(255) NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at BIGINT NOT NULL,
+			updated_at BIGINT NOT NULL,
+			INDEX idx_enabled (enabled),
+			INDEX idx_activity_type (activity_type)
+		)`,
 		`CREATE INDEX idx_message_states_channel_thread ON message_states(channel_id, thread_id)`,
 		`CREATE INDEX idx_message_states_timestamp ON message_states(last_seen_timestamp)`,
 		`CREATE INDEX idx_thread_ownerships_thread_id ON thread_ownerships(thread_id)`,
@@ -235,14 +241,14 @@ func (s *MySQLStorageService) createTables(ctx context.Context) error {
 	}
 
 	// Create tables first
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		if _, err := s.db.ExecContext(ctx, statements[i]); err != nil {
 			return fmt.Errorf("failed to execute schema statement: %w", err)
 		}
 	}
 
 	// Create indexes with error handling for duplicates
-	for i := 3; i < len(statements); i++ {
+	for i := 4; i < len(statements); i++ {
 		if _, err := s.db.ExecContext(ctx, statements[i]); err != nil {
 			// Ignore duplicate index errors (MySQL error code 1061)
 			if !strings.Contains(err.Error(), "Duplicate key name") {
@@ -341,6 +347,32 @@ func (s *MySQLStorageService) prepareStatements() error {
 		"delete_configuration": `
 			DELETE FROM configurations
 			WHERE config_key = ?
+		`,
+		"get_status_messages_batch": `
+			SELECT id, activity_type, status_text, enabled, created_at, updated_at
+			FROM bot_status_messages
+			WHERE enabled = TRUE
+			ORDER BY RAND()
+			LIMIT ?
+		`,
+		"add_status_message": `
+			INSERT INTO bot_status_messages (activity_type, status_text, enabled, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+		`,
+		"update_status_message": `
+			UPDATE bot_status_messages
+			SET enabled = ?, updated_at = ?
+			WHERE id = ?
+		`,
+		"get_all_status_messages": `
+			SELECT id, activity_type, status_text, enabled, created_at, updated_at
+			FROM bot_status_messages
+			ORDER BY activity_type, status_text
+		`,
+		"get_enabled_status_messages_count": `
+			SELECT COUNT(*)
+			FROM bot_status_messages
+			WHERE enabled = TRUE
 		`,
 	}
 
@@ -871,4 +903,111 @@ func (s *MySQLStorageService) DeleteConfiguration(ctx context.Context, key strin
 	}
 
 	return nil
+}
+
+// GetStatusMessagesBatch retrieves a random batch of enabled status messages
+func (s *MySQLStorageService) GetStatusMessagesBatch(ctx context.Context, limit int) ([]*StatusMessage, error) {
+	stmt := s.prepared["get_status_messages_batch"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_status_messages_batch statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query status messages batch: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*StatusMessage
+	for rows.Next() {
+		var msg StatusMessage
+		if err := rows.Scan(&msg.ID, &msg.ActivityType, &msg.StatusText, &msg.Enabled, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan status message: %w", err)
+		}
+		messages = append(messages, &msg)
+	}
+
+	return messages, rows.Err()
+}
+
+// AddStatusMessage creates a new status message
+func (s *MySQLStorageService) AddStatusMessage(ctx context.Context, activityType, statusText string, enabled bool) error {
+	stmt := s.prepared["add_status_message"]
+	if stmt == nil {
+		return fmt.Errorf("add_status_message statement not prepared")
+	}
+
+	now := time.Now().Unix()
+	_, err := stmt.ExecContext(ctx, activityType, statusText, enabled, now, now)
+	if err != nil {
+		return fmt.Errorf("failed to add status message: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateStatusMessage updates the enabled status of a status message
+func (s *MySQLStorageService) UpdateStatusMessage(ctx context.Context, id int64, enabled bool) error {
+	stmt := s.prepared["update_status_message"]
+	if stmt == nil {
+		return fmt.Errorf("update_status_message statement not prepared")
+	}
+
+	now := time.Now().Unix()
+	result, err := stmt.ExecContext(ctx, enabled, now, id)
+	if err != nil {
+		return fmt.Errorf("failed to update status message: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("status message with ID %d not found", id)
+	}
+
+	return nil
+}
+
+// GetAllStatusMessages retrieves all status messages
+func (s *MySQLStorageService) GetAllStatusMessages(ctx context.Context) ([]*StatusMessage, error) {
+	stmt := s.prepared["get_all_status_messages"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_all_status_messages statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all status messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*StatusMessage
+	for rows.Next() {
+		var msg StatusMessage
+		if err := rows.Scan(&msg.ID, &msg.ActivityType, &msg.StatusText, &msg.Enabled, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan status message: %w", err)
+		}
+		messages = append(messages, &msg)
+	}
+
+	return messages, rows.Err()
+}
+
+// GetEnabledStatusMessagesCount returns the count of enabled status messages
+func (s *MySQLStorageService) GetEnabledStatusMessagesCount(ctx context.Context) (int, error) {
+	stmt := s.prepared["get_enabled_status_messages_count"]
+	if stmt == nil {
+		return 0, fmt.Errorf("get_enabled_status_messages_count statement not prepared")
+	}
+
+	var count int
+	err := stmt.QueryRowContext(ctx).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get enabled status messages count: %w", err)
+	}
+
+	return count, nil
 }

@@ -137,7 +137,6 @@ jobs:
           "k8s/configmap.yaml"
           "k8s/secret.yaml"
           "k8s/serviceaccount.yaml"
-          "k8s/persistentvolume.yaml"
           "k8s/networkpolicy.yaml"
           "k8s/hpa.yaml"
           "k8s/kustomization.yaml"

@@ -228,15 +228,11 @@ func TestBotStatusUpdate(t *testing.T) {
 }
 
 func TestMentionToReplyWorkflow(t *testing.T) {
-	// Skip integration test if no bot token or Gemini CLI path is provided
+	// Skip integration test if no bot token is provided
 	token := os.Getenv("BOT_TOKEN")
-	geminiPath := os.Getenv("GEMINI_CLI_PATH")
 
 	if token == "" {
 		t.Skip("Skipping integration test: BOT_TOKEN environment variable not set")
-	}
-	if geminiPath == "" {
-		t.Skip("Skipping integration test: GEMINI_CLI_PATH environment variable not set")
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))

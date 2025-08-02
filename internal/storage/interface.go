@@ -39,6 +39,16 @@ type Configuration struct {
 	UpdatedAt   int64  `db:"updated_at"`   // Record last update timestamp
 }
 
+// StatusMessage represents a Discord bot status message stored in the database
+type StatusMessage struct {
+	ID           int64  `db:"id"`            // Primary key, auto-increment
+	ActivityType string `db:"activity_type"` // Discord activity type (Playing, Listening, Watching, Competing)
+	StatusText   string `db:"status_text"`   // Status message text
+	Enabled      bool   `db:"enabled"`       // Whether this status is enabled for rotation
+	CreatedAt    int64  `db:"created_at"`    // Record creation timestamp
+	UpdatedAt    int64  `db:"updated_at"`    // Record last update timestamp
+}
+
 // StorageService defines the interface for message state persistence operations
 type StorageService interface {
 	// Initialize sets up the database connection and creates necessary tables
@@ -88,4 +98,19 @@ type StorageService interface {
 
 	// DeleteConfiguration removes a configuration entry by key
 	DeleteConfiguration(ctx context.Context, key string) error
+
+	// GetStatusMessagesBatch retrieves a random batch of enabled status messages
+	GetStatusMessagesBatch(ctx context.Context, limit int) ([]*StatusMessage, error)
+
+	// AddStatusMessage creates a new status message
+	AddStatusMessage(ctx context.Context, activityType, statusText string, enabled bool) error
+
+	// UpdateStatusMessage updates the enabled status of a status message
+	UpdateStatusMessage(ctx context.Context, id int64, enabled bool) error
+
+	// GetAllStatusMessages retrieves all status messages
+	GetAllStatusMessages(ctx context.Context) ([]*StatusMessage, error)
+
+	// GetEnabledStatusMessagesCount returns the count of enabled status messages
+	GetEnabledStatusMessagesCount(ctx context.Context) (int, error)
 }

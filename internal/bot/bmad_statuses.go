@@ -1,13 +1,14 @@
 package bot
 
 import (
-	"bufio"
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"os"
 	"strings"
+	"sync"
 
+	"bmad-knowledge-bot/internal/storage"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -17,65 +18,120 @@ type BMADStatus struct {
 	Text         string
 }
 
-// bmadStatuses contains BMAD-themed Discord statuses loaded from file
-var bmadStatuses []BMADStatus
+// StatusManager handles dynamic batch loading of Discord statuses from MySQL
+type StatusManager struct {
+	storage      storage.StorageService
+	logger       *slog.Logger
+	currentBatch []BMADStatus
+	batchIndex   int
+	batchSize    int
+	mu           sync.RWMutex
+}
 
-// LoadBMADStatuses loads status messages from a text file
-func LoadBMADStatuses(filePath string, logger *slog.Logger) error {
-	file, err := os.Open(filePath)
+// NewStatusManager creates a new status manager with database backend
+func NewStatusManager(storageService storage.StorageService, logger *slog.Logger, batchSize int) *StatusManager {
+	return &StatusManager{
+		storage:   storageService,
+		logger:    logger,
+		batchSize: batchSize,
+	}
+}
+
+// LoadNextBatch fetches a new random batch of enabled status messages from the database
+func (sm *StatusManager) LoadNextBatch(ctx context.Context) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	statusMessages, err := sm.storage.GetStatusMessagesBatch(ctx, sm.batchSize)
 	if err != nil {
-		return fmt.Errorf("failed to open status file %s: %w", filePath, err)
+		return fmt.Errorf("failed to load status messages batch: %w", err)
 	}
-	defer file.Close()
 
-	var statuses []BMADStatus
-	scanner := bufio.NewScanner(file)
-	lineNum := 0
+	if len(statusMessages) == 0 {
+		return fmt.Errorf("no enabled status messages found in database")
+	}
 
-	for scanner.Scan() {
-		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Parse format: ActivityType|Status Text
-		parts := strings.SplitN(line, "|", 2)
-		if len(parts) != 2 {
-			logger.Warn("Invalid status line format", "line", lineNum, "content", line)
-			continue
-		}
-
-		activityType := parseActivityType(strings.TrimSpace(parts[0]))
+	// Convert storage.StatusMessage to bot.BMADStatus
+	sm.currentBatch = make([]BMADStatus, 0, len(statusMessages))
+	for _, msg := range statusMessages {
+		activityType := parseActivityType(msg.ActivityType)
 		if activityType == -1 {
-			logger.Warn("Unknown activity type", "line", lineNum, "type", parts[0])
+			sm.logger.Warn("Unknown activity type in database", "type", msg.ActivityType, "id", msg.ID)
 			continue
 		}
 
-		status := BMADStatus{
+		bmadStatus := BMADStatus{
 			ActivityType: activityType,
-			Text:         strings.TrimSpace(parts[1]),
+			Text:         msg.StatusText,
 		}
-
-		statuses = append(statuses, status)
+		sm.currentBatch = append(sm.currentBatch, bmadStatus)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading status file: %w", err)
-	}
-
-	if len(statuses) == 0 {
-		return fmt.Errorf("no valid statuses found in file %s", filePath)
-	}
-
-	bmadStatuses = statuses
-	logger.Info("BMAD statuses loaded successfully",
-		"file", filePath,
-		"count", len(bmadStatuses))
+	sm.batchIndex = 0
+	sm.logger.Info("New status batch loaded from database",
+		"batch_size", len(sm.currentBatch),
+		"requested_size", sm.batchSize)
 
 	return nil
+}
+
+// GetRandomStatus returns a random status from the current batch, loading a new batch if needed
+func (sm *StatusManager) GetRandomStatus(ctx context.Context) (BMADStatus, error) {
+	sm.mu.RLock()
+	batchEmpty := len(sm.currentBatch) == 0
+	sm.mu.RUnlock()
+
+	// Load initial or new batch if current batch is empty
+	if batchEmpty {
+		if err := sm.LoadNextBatch(ctx); err != nil {
+			// Return fallback status if batch loading fails
+			return BMADStatus{
+				ActivityType: discordgo.ActivityTypeGame,
+				Text:         "BMAD methodology",
+			}, err
+		}
+	}
+
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if len(sm.currentBatch) == 0 {
+		// Return fallback status if still no statuses available
+		return BMADStatus{
+			ActivityType: discordgo.ActivityTypeGame,
+			Text:         "BMAD methodology",
+		}, fmt.Errorf("no status messages available")
+	}
+
+	// Return random status from current batch
+	return sm.currentBatch[rand.Intn(len(sm.currentBatch))], nil
+}
+
+// GetStatusCount returns the count of statuses in the current batch
+func (sm *StatusManager) GetStatusCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.currentBatch)
+}
+
+// RefreshBatch forces a refresh of the current batch
+func (sm *StatusManager) RefreshBatch(ctx context.Context) error {
+	return sm.LoadNextBatch(ctx)
+}
+
+// Legacy global variables for compatibility (will be removed)
+var globalStatusManager *StatusManager
+
+// InitializeStatusManager initializes the global status manager
+func InitializeStatusManager(storageService storage.StorageService, logger *slog.Logger, batchSize int) {
+	globalStatusManager = NewStatusManager(storageService, logger, batchSize)
+}
+
+// LoadBMADStatuses is a legacy function for compatibility - now initializes the status manager
+func LoadBMADStatuses(filePath string, logger *slog.Logger) error {
+	logger.Warn("LoadBMADStatuses is deprecated - status messages are now loaded from database",
+		"deprecated_file", filePath)
+	return fmt.Errorf("file-based status loading is deprecated - use InitializeStatusManager instead")
 }
 
 // parseActivityType converts string to Discord ActivityType
@@ -94,21 +150,33 @@ func parseActivityType(activityStr string) discordgo.ActivityType {
 	}
 }
 
-// GetRandomBMADStatus returns a random BMAD-themed Discord status
+// GetRandomBMADStatus returns a random BMAD-themed Discord status (legacy compatibility)
 func GetRandomBMADStatus() BMADStatus {
-	if len(bmadStatuses) == 0 {
-		// Fallback status if no statuses loaded
+	if globalStatusManager == nil {
+		// Fallback status if manager not initialized
 		return BMADStatus{
 			ActivityType: discordgo.ActivityTypeGame,
 			Text:         "BMAD methodology",
 		}
 	}
-	return bmadStatuses[rand.Intn(len(bmadStatuses))]
+
+	status, err := globalStatusManager.GetRandomStatus(context.Background())
+	if err != nil {
+		// Return fallback status on error
+		return BMADStatus{
+			ActivityType: discordgo.ActivityTypeGame,
+			Text:         "BMAD methodology",
+		}
+	}
+	return status
 }
 
-// GetStatusCount returns the number of loaded statuses
+// GetStatusCount returns the number of statuses in the current batch (legacy compatibility)
 func GetStatusCount() int {
-	return len(bmadStatuses)
+	if globalStatusManager == nil {
+		return 0
+	}
+	return globalStatusManager.GetStatusCount()
 }
 
 // InitRandomSeed initializes the random seed (deprecated: rand.Seed is no longer needed in Go 1.20+)

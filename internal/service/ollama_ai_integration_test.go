@@ -94,12 +94,18 @@ The system follows structured workflows for development projects.`
 	os.Setenv("OLLAMA_HOST", mockServer.URL)
 	os.Setenv("OLLAMA_MODEL", "devstral")
 	os.Setenv("OLLAMA_TIMEOUT", "30")
-	os.Setenv("BMAD_PROMPT_PATH", tempFile.Name())
+
+	// Create ephemeral cache file with test knowledge to avoid remote fetch
+	ephemeralCachePath := "/tmp/bmad-kb-cache.md"
+	if err := os.WriteFile(ephemeralCachePath, []byte(testKnowledge), 0644); err != nil {
+		t.Fatalf("Failed to create ephemeral cache: %v", err)
+	}
+
 	defer func() {
 		os.Unsetenv("OLLAMA_HOST")
 		os.Unsetenv("OLLAMA_MODEL")
 		os.Unsetenv("OLLAMA_TIMEOUT")
-		os.Unsetenv("BMAD_PROMPT_PATH")
+		os.Remove(ephemeralCachePath) // Clean up cache file
 	}()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))

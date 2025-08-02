@@ -363,7 +363,7 @@ func TestStatusManagerInterface(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	session := &MockBotSession{}
 
-	var manager StatusManager = NewDiscordStatusManager(session, logger)
+	var manager DiscordStatusManager = NewDiscordStatusManager(session, logger)
 
 	// Test that all interface methods are available
 	err := manager.UpdateStatusFromRateLimit("test", "Normal")

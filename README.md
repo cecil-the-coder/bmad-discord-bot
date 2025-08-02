@@ -17,7 +17,7 @@ A specialized Discord bot built with Go that provides expert knowledge about the
 
 - Go 1.24.x
 - Discord Bot Token
-- Google Gemini CLI (for AI functionality)
+- Ollama AI service (for AI functionality)
 - BMAD Knowledge Base file (`docs/bmadprompt.md`)
 - Docker and Docker Compose (optional, for containerized deployment)
 
@@ -30,9 +30,12 @@ A specialized Discord bot built with Go that provides expert knowledge about the
    ```
 3. Edit `.env` and set your configuration:
    ```
-   DISCORD_TOKEN=your_discord_bot_token
-   GEMINI_CLI_PATH=/usr/local/bin/gemini
-   BMAD_PROMPT_PATH=internal/knowledge/bmad.md  # Optional, defaults to internal/knowledge/bmad.md
+   BOT_TOKEN=your_discord_bot_token
+   AI_PROVIDER=ollama
+   MYSQL_HOST=localhost
+   MYSQL_DATABASE=bmad_bot
+   MYSQL_USERNAME=bmad_user
+   MYSQL_PASSWORD=your_mysql_password
    ```
 
 ### Getting a Discord Bot Token
@@ -48,9 +51,12 @@ A specialized Discord bot built with Go that provides expert knowledge about the
 #### Local Development
 ```bash
 # Set environment variables
-export DISCORD_TOKEN=your_discord_bot_token
-export GEMINI_CLI_PATH=/usr/local/bin/gemini
-export BMAD_PROMPT_PATH=internal/knowledge/bmad.md  # Optional
+export BOT_TOKEN=your_discord_bot_token
+export AI_PROVIDER=ollama
+export MYSQL_HOST=localhost
+export MYSQL_DATABASE=bmad_bot
+export MYSQL_USERNAME=bmad_user
+export MYSQL_PASSWORD=your_mysql_password
 
 # Run the bot
 go run cmd/bot/main.go
@@ -64,17 +70,19 @@ docker build -t bmad-knowledge-bot .
 # Run the container
 docker run -d \
   --name bmad-discord-bot \
-  -e DISCORD_TOKEN=$DISCORD_TOKEN \
-  -e GEMINI_CLI_PATH=/usr/local/bin/gemini \
-  -e BMAD_PROMPT_PATH=/app/internal/knowledge/bmad.md \
-  -v ~/.gemini:/home/botuser/.gemini:rw \
+  -e BOT_TOKEN=$BOT_TOKEN \
+  -e AI_PROVIDER=ollama \
+  -e MYSQL_HOST=$MYSQL_HOST \
+  -e MYSQL_DATABASE=$MYSQL_DATABASE \
+  -e MYSQL_USERNAME=$MYSQL_USERNAME \
+  -e MYSQL_PASSWORD=$MYSQL_PASSWORD \
   bmad-knowledge-bot:latest
 ```
 
 #### Using Docker Compose (Recommended)
 ```bash
 # Create required directories
-mkdir -p gemini-config logs
+mkdir -p logs
 
 # Start the bot with Docker Compose
 docker-compose up -d

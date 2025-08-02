@@ -69,18 +69,18 @@ type QualityMetrics struct {
 
 // OllamaAIService implements AIService interface using Ollama API
 type OllamaAIService struct {
-	client            *http.Client
-	baseURL           string
-	modelName         string
-	timeout           time.Duration
-	logger            *slog.Logger
-	rateLimiter       monitor.AIProviderRateLimiter
-	bmadKnowledgeBase string
-	bmadPromptPath    string
-	knowledgeBaseMu   sync.RWMutex
-	qualityMetrics    *QualityMetrics
-	bmadTerms         []string
-	qualityEnabled    bool
+	client             *http.Client
+	baseURL            string
+	modelName          string
+	timeout            time.Duration
+	logger             *slog.Logger
+	rateLimiter        monitor.AIProviderRateLimiter
+	bmadKnowledgeBase  string
+	ephemeralCachePath string
+	knowledgeBaseMu    sync.RWMutex
+	qualityMetrics     *QualityMetrics
+	bmadTerms          []string
+	qualityEnabled     bool
 }
 
 // NewOllamaAIService creates a new Ollama AI service instance
@@ -104,11 +104,8 @@ func NewOllamaAIService(logger *slog.Logger) (*OllamaAIService, error) {
 		}
 	}
 
-	// Get BMAD prompt path from environment or use default
-	bmadPromptPath := os.Getenv("BMAD_PROMPT_PATH")
-	if bmadPromptPath == "" {
-		bmadPromptPath = "internal/knowledge/bmad.md"
-	}
+	// BMAD knowledge base is now fetched from remote URL and cached ephemerally
+	// No persistent file path needed - content stored in /tmp
 
 	// Check if quality monitoring is enabled
 	qualityEnabled := os.Getenv("OLLAMA_QUALITY_MONITORING_ENABLED")
@@ -123,13 +120,12 @@ func NewOllamaAIService(logger *slog.Logger) (*OllamaAIService, error) {
 	}
 
 	service := &OllamaAIService{
-		client:         client,
-		baseURL:        baseURL,
-		modelName:      modelName,
-		timeout:        timeout,
-		logger:         logger,
-		rateLimiter:    nil, // Will be set via SetRateLimiter
-		bmadPromptPath: bmadPromptPath,
+		client:      client,
+		baseURL:     baseURL,
+		modelName:   modelName,
+		timeout:     timeout,
+		logger:      logger,
+		rateLimiter: nil, // Will be set via SetRateLimiter
 		qualityMetrics: &QualityMetrics{
 			LastUpdated: time.Now(),
 		},
@@ -157,16 +153,15 @@ func NewOllamaAIService(logger *slog.Logger) (*OllamaAIService, error) {
 		return nil, fmt.Errorf("model validation failed: %w", err)
 	}
 
-	// Load BMAD knowledge base at startup
-	if err := service.loadBMADKnowledgeBase(); err != nil {
-		logger.Error("Failed to load BMAD knowledge base",
-			"path", bmadPromptPath,
+	// Load BMAD knowledge base from remote URL and cache ephemerally
+	if err := service.loadBMADKnowledgeBaseFromURL(); err != nil {
+		logger.Error("Failed to load BMAD knowledge base from remote URL",
 			"error", err)
 		return nil, fmt.Errorf("failed to load BMAD knowledge base: %w", err)
 	}
 
-	logger.Info("BMAD knowledge base loaded successfully",
-		"path", bmadPromptPath,
+	logger.Info("BMAD knowledge base loaded successfully from remote URL",
+		"cache_path", service.ephemeralCachePath,
 		"size", len(service.bmadKnowledgeBase))
 
 	return service, nil
@@ -226,18 +221,87 @@ func (o *OllamaAIService) validateModel() error {
 	return nil
 }
 
-// loadBMADKnowledgeBase loads the BMAD prompt file into memory
-func (o *OllamaAIService) loadBMADKnowledgeBase() error {
+// loadBMADKnowledgeBaseFromURL fetches BMAD knowledge base from remote URL and caches ephemerally
+func (o *OllamaAIService) loadBMADKnowledgeBaseFromURL() error {
 	o.knowledgeBaseMu.Lock()
 	defer o.knowledgeBaseMu.Unlock()
 
-	content, err := os.ReadFile(o.bmadPromptPath)
+	// Get remote URL from environment variable
+	remoteURL := os.Getenv("BMAD_KB_REMOTE_URL")
+	if remoteURL == "" {
+		remoteURL = "https://github.com/bmadcode/BMAD-METHOD/raw/refs/heads/main/bmad-core/data/bmad-kb.md"
+	}
+
+	// Set ephemeral cache path in /tmp
+	o.ephemeralCachePath = "/tmp/bmad-kb-cache.md"
+
+	// Try to read from ephemeral cache first
+	if content, err := os.ReadFile(o.ephemeralCachePath); err == nil {
+		o.bmadKnowledgeBase = string(content)
+		o.logger.Info("BMAD knowledge base loaded from ephemeral cache",
+			"cache_path", o.ephemeralCachePath,
+			"size", len(content))
+		return nil
+	}
+
+	// If cache doesn't exist or is invalid, fetch from remote URL
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", remoteURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to read BMAD prompt file: %w", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch BMAD knowledge base from %s: %w", remoteURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d when fetching BMAD knowledge base from %s", resp.StatusCode, remoteURL)
+	}
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Cache content ephemerally
+	if err := os.WriteFile(o.ephemeralCachePath, content, 0644); err != nil {
+		o.logger.Warn("Failed to write ephemeral cache",
+			"cache_path", o.ephemeralCachePath,
+			"error", err)
 	}
 
 	o.bmadKnowledgeBase = string(content)
+	o.logger.Info("BMAD knowledge base fetched from remote URL and cached",
+		"remote_url", remoteURL,
+		"cache_path", o.ephemeralCachePath,
+		"size", len(content))
+
 	return nil
+}
+
+// RefreshKnowledgeBase refreshes the knowledge base from ephemeral cache
+func (o *OllamaAIService) RefreshKnowledgeBase() error {
+	o.knowledgeBaseMu.Lock()
+	defer o.knowledgeBaseMu.Unlock()
+
+	// Try to read from ephemeral cache
+	if content, err := os.ReadFile(o.ephemeralCachePath); err == nil {
+		o.bmadKnowledgeBase = string(content)
+		o.logger.Info("BMAD knowledge base refreshed from ephemeral cache",
+			"cache_path", o.ephemeralCachePath,
+			"size", len(content))
+		return nil
+	} else {
+		o.logger.Warn("Failed to refresh knowledge base from ephemeral cache",
+			"cache_path", o.ephemeralCachePath,
+			"error", err)
+		return err
+	}
 }
 
 // SetRateLimiter sets the rate limiter for this service

@@ -45,12 +45,18 @@ func TestNewOllamaAIService(t *testing.T) {
 	os.Setenv("OLLAMA_HOST", mockServer.URL)
 	os.Setenv("OLLAMA_MODEL", "devstral")
 	os.Setenv("OLLAMA_TIMEOUT", "10")
-	os.Setenv("BMAD_PROMPT_PATH", tempFile.Name())
+
+	// Create ephemeral cache file to avoid remote fetch
+	ephemeralCachePath := "/tmp/bmad-kb-cache.md"
+	if err := os.WriteFile(ephemeralCachePath, []byte(testKnowledge), 0644); err != nil {
+		t.Fatalf("Failed to create ephemeral cache: %v", err)
+	}
+
 	defer func() {
 		os.Unsetenv("OLLAMA_HOST")
 		os.Unsetenv("OLLAMA_MODEL")
 		os.Unsetenv("OLLAMA_TIMEOUT")
-		os.Unsetenv("BMAD_PROMPT_PATH")
+		os.Remove(ephemeralCachePath)
 	}()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -103,10 +109,16 @@ func TestNewOllamaAIServiceDefaults(t *testing.T) {
 
 	// Temporarily override the default URL by setting the environment variable
 	os.Setenv("OLLAMA_HOST", mockServer.URL)
-	os.Setenv("BMAD_PROMPT_PATH", tempFile.Name())
+
+	// Create ephemeral cache file to avoid remote fetch
+	ephemeralCachePath := "/tmp/bmad-kb-cache.md"
+	if err := os.WriteFile(ephemeralCachePath, []byte(testKnowledge), 0644); err != nil {
+		t.Fatalf("Failed to create ephemeral cache: %v", err)
+	}
+
 	defer func() {
 		os.Unsetenv("OLLAMA_HOST")
-		os.Unsetenv("BMAD_PROMPT_PATH")
+		os.Remove(ephemeralCachePath)
 	}()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -238,13 +250,13 @@ func TestQueryAI(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	service := &OllamaAIService{
-		client:            &http.Client{Timeout: 10 * time.Second},
-		baseURL:           mockServer.URL,
-		modelName:         "devstral",
-		timeout:           10 * time.Second,
-		logger:            logger,
-		bmadKnowledgeBase: testKnowledge,
-		bmadPromptPath:    tempFile.Name(),
+		client:             &http.Client{Timeout: 10 * time.Second},
+		baseURL:            mockServer.URL,
+		modelName:          "devstral",
+		timeout:            10 * time.Second,
+		logger:             logger,
+		bmadKnowledgeBase:  testKnowledge,
+		ephemeralCachePath: tempFile.Name(),
 	}
 
 	response, err := service.QueryAI("What is BMAD?")
@@ -289,13 +301,13 @@ func TestQueryAIWithSummary(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	service := &OllamaAIService{
-		client:            &http.Client{Timeout: 10 * time.Second},
-		baseURL:           mockServer.URL,
-		modelName:         "devstral",
-		timeout:           10 * time.Second,
-		logger:            logger,
-		bmadKnowledgeBase: testKnowledge,
-		bmadPromptPath:    tempFile.Name(),
+		client:             &http.Client{Timeout: 10 * time.Second},
+		baseURL:            mockServer.URL,
+		modelName:          "devstral",
+		timeout:            10 * time.Second,
+		logger:             logger,
+		bmadKnowledgeBase:  testKnowledge,
+		ephemeralCachePath: tempFile.Name(),
 	}
 
 	mainAnswer, summary, err := service.QueryAIWithSummary("What is BMAD?")
@@ -425,13 +437,13 @@ func TestQueryWithContext(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	service := &OllamaAIService{
-		client:            &http.Client{Timeout: 10 * time.Second},
-		baseURL:           mockServer.URL,
-		modelName:         "devstral",
-		timeout:           10 * time.Second,
-		logger:            logger,
-		bmadKnowledgeBase: testKnowledge,
-		bmadPromptPath:    tempFile.Name(),
+		client:             &http.Client{Timeout: 10 * time.Second},
+		baseURL:            mockServer.URL,
+		modelName:          "devstral",
+		timeout:            10 * time.Second,
+		logger:             logger,
+		bmadKnowledgeBase:  testKnowledge,
+		ephemeralCachePath: tempFile.Name(),
 	}
 
 	history := "Previous conversation about agents"

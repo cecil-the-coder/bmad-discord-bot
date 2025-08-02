@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -468,121 +467,18 @@ func TestMySQLStorageService_ConnectionRetry(t *testing.T) {
 		"Expected error to contain 'failed to connect after' or 'context deadline exceeded', got: %s", errorStr)
 }
 
-func TestMySQLStorageService_DataMigration(t *testing.T) {
-	// Setup SQLite storage with test data
-	sqliteService := setupTestSQLiteStorage(t)
-	defer sqliteService.Close()
-	ctx := context.Background()
-
-	// Add test data to SQLite
-	sqliteStates := []*MessageState{
-		{
-			ChannelID:         "channel1",
-			ThreadID:          nil,
-			LastMessageID:     "msg1",
-			LastSeenTimestamp: time.Now().Unix() - 300,
-		},
-		{
-			ChannelID:         "channel2",
-			ThreadID:          stringPtr("thread1"),
-			LastMessageID:     "msg2",
-			LastSeenTimestamp: time.Now().Unix() - 200,
-		},
-	}
-
-	sqliteOwnerships := []*ThreadOwnership{
-		{
-			ThreadID:       "thread1",
-			OriginalUserID: "user1",
-			CreatedBy:      "bot1",
-			CreationTime:   time.Now().Unix() - 300,
-		},
-	}
-
-	for _, state := range sqliteStates {
-		err := sqliteService.UpsertMessageState(ctx, state)
-		require.NoError(t, err)
-	}
-
-	for _, ownership := range sqliteOwnerships {
-		err := sqliteService.UpsertThreadOwnership(ctx, ownership)
-		require.NoError(t, err)
-	}
-
-	// Setup MySQL storage
-	mysqlService := setupTestMySQLStorage(t)
-	defer mysqlService.Close()
-
-	// Perform migration
-	migrationService := NewMigrationService(sqliteService, mysqlService)
-	err := migrationService.MigrateData(ctx)
-	require.NoError(t, err)
-
-	// Validate migration
-	err = migrationService.ValidateMigration(ctx)
-	require.NoError(t, err)
-
-	// Verify data was migrated correctly
-	mysqlStates, err := mysqlService.GetAllMessageStates(ctx)
-	require.NoError(t, err)
-	assert.Len(t, mysqlStates, 2)
-
-	mysqlOwnerships, err := mysqlService.GetAllThreadOwnerships(ctx)
-	require.NoError(t, err)
-	assert.Len(t, mysqlOwnerships, 1)
-}
-
-// Benchmark tests comparing SQLite and MySQL performance
-func BenchmarkMySQLStorageService_UpsertMessageState(b *testing.B) {
-	service := setupBenchmarkMySQLStorage(b)
-	defer service.Close()
-	ctx := context.Background()
-
-	state := &MessageState{
-		ChannelID:         "benchmark_channel",
-		ThreadID:          nil,
-		LastMessageID:     "msg",
-		LastSeenTimestamp: time.Now().Unix(),
-	}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			state.LastMessageID = fmt.Sprintf("msg_%d", time.Now().UnixNano())
-			service.UpsertMessageState(ctx, state)
-		}
-	})
-}
-
-func BenchmarkSQLiteStorageService_UpsertMessageState(b *testing.B) {
-	service := setupBenchmarkSQLiteStorage(b)
-	defer service.Close()
-	ctx := context.Background()
-
-	state := &MessageState{
-		ChannelID:         "benchmark_channel",
-		ThreadID:          nil,
-		LastMessageID:     "msg",
-		LastSeenTimestamp: time.Now().Unix(),
-	}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			state.LastMessageID = fmt.Sprintf("msg_%d", time.Now().UnixNano())
-			service.UpsertMessageState(ctx, state)
-		}
-	})
-}
-
-// Helper functions
-
 func setupTestMySQLStorage(t *testing.T) *MySQLStorageService {
 	ctx := context.Background()
 
-	// Start MySQL container
-	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0")
-	require.NoError(t, err)
+	// Start MySQL container for testing
+	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0",
+		mysql.WithDatabase("test"),
+		mysql.WithUsername("root"),
+		mysql.WithPassword("test"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to start MySQL container: %v", err)
+	}
 
 	// Clean up container when test finishes
 	t.Cleanup(func() {
@@ -591,61 +487,13 @@ func setupTestMySQLStorage(t *testing.T) *MySQLStorageService {
 
 	// Get connection details
 	host, err := mysqlContainer.Host(ctx)
-	require.NoError(t, err)
-
-	port, err := mysqlContainer.MappedPort(ctx, "3306")
-	require.NoError(t, err)
-
-	config := MySQLConfig{
-		Host:     host,
-		Port:     port.Port(),
-		Database: "test",
-		Username: "root",
-		Password: "test",
-		Timeout:  "30s",
-	}
-
-	service := NewMySQLStorageService(config)
-	err = service.Initialize(ctx)
-	require.NoError(t, err)
-
-	return service
-}
-
-func setupTestSQLiteStorage(t *testing.T) *SQLiteStorageService {
-	tempDir := t.TempDir()
-	dbPath := fmt.Sprintf("%s/test.db", tempDir)
-
-	service := NewSQLiteStorageService(dbPath)
-	err := service.Initialize(context.Background())
-	require.NoError(t, err)
-
-	return service
-}
-
-func setupBenchmarkMySQLStorage(b *testing.B) *MySQLStorageService {
-	ctx := context.Background()
-
-	// Start MySQL container
-	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0")
 	if err != nil {
-		b.Fatalf("Failed to start MySQL container: %v", err)
-	}
-
-	// Clean up container when benchmark finishes
-	b.Cleanup(func() {
-		mysqlContainer.Terminate(ctx)
-	})
-
-	// Get connection details
-	host, err := mysqlContainer.Host(ctx)
-	if err != nil {
-		b.Fatalf("Failed to get container host: %v", err)
+		t.Fatalf("Failed to get container host: %v", err)
 	}
 
 	port, err := mysqlContainer.MappedPort(ctx, "3306")
 	if err != nil {
-		b.Fatalf("Failed to get container port: %v", err)
+		t.Fatalf("Failed to get container port: %v", err)
 	}
 
 	config := MySQLConfig{
@@ -660,23 +508,13 @@ func setupBenchmarkMySQLStorage(b *testing.B) *MySQLStorageService {
 	service := NewMySQLStorageService(config)
 	err = service.Initialize(ctx)
 	if err != nil {
-		b.Fatalf("Failed to initialize MySQL service: %v", err)
+		t.Fatalf("Failed to initialize MySQL service: %v", err)
 	}
 
 	return service
 }
 
-func setupBenchmarkSQLiteStorage(b *testing.B) *SQLiteStorageService {
-	tempDir := b.TempDir()
-	dbPath := fmt.Sprintf("%s/benchmark.db", tempDir)
-
-	service := NewSQLiteStorageService(dbPath)
-	err := service.Initialize(context.Background())
-	if err != nil {
-		b.Fatalf("Failed to initialize SQLite service: %v", err)
-	}
-
-	return service
+// Helper function to create string pointer
+func stringPtr(s string) *string {
+	return &s
 }
-
-// stringPtr is already defined in sqlite_test.go

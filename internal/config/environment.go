@@ -19,7 +19,7 @@ var SecureConfigKeys = map[string]bool{
 	"MYSQL_PORT":     true,
 	"MYSQL_DATABASE": true,
 	"MYSQL_TIMEOUT":  true,
-	"DATABASE_TYPE":  true, // Controls whether to use SQLite or MySQL
+	// DATABASE_TYPE removed in Story 2.12 - MySQL-only architecture
 }
 
 // HybridConfigService implements ConfigService with database-first loading and environment variable fallback

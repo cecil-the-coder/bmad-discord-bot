@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -32,27 +31,27 @@ type RefreshStatus struct {
 }
 
 type HTTPKnowledgeUpdater struct {
-	remoteURL       string
-	localFilePath   string
-	refreshInterval time.Duration
-	enabled         bool
-	httpClient      *http.Client
-	ticker          *time.Ticker
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
-	mu              sync.RWMutex
-	status          RefreshStatus
-	logger          *slog.Logger
+	remoteURL          string
+	ephemeralCachePath string
+	refreshInterval    time.Duration
+	enabled            bool
+	httpClient         *http.Client
+	ticker             *time.Ticker
+	stopChan           chan struct{}
+	wg                 sync.WaitGroup
+	mu                 sync.RWMutex
+	status             RefreshStatus
+	logger             *slog.Logger
 }
 
 type Config struct {
-	RemoteURL       string
-	LocalFilePath   string
-	RefreshInterval time.Duration
-	Enabled         bool
-	HTTPTimeout     time.Duration
-	RetryAttempts   int
-	RetryDelay      time.Duration
+	RemoteURL          string
+	EphemeralCachePath string
+	RefreshInterval    time.Duration
+	Enabled            bool
+	HTTPTimeout        time.Duration
+	RetryAttempts      int
+	RetryDelay         time.Duration
 }
 
 func NewHTTPKnowledgeUpdater(config Config, logger *slog.Logger) *HTTPKnowledgeUpdater {
@@ -65,13 +64,13 @@ func NewHTTPKnowledgeUpdater(config Config, logger *slog.Logger) *HTTPKnowledgeU
 	}
 
 	return &HTTPKnowledgeUpdater{
-		remoteURL:       config.RemoteURL,
-		localFilePath:   config.LocalFilePath,
-		refreshInterval: config.RefreshInterval,
-		enabled:         config.Enabled,
-		httpClient:      httpClient,
-		stopChan:        make(chan struct{}),
-		logger:          logger,
+		remoteURL:          config.RemoteURL,
+		ephemeralCachePath: config.EphemeralCachePath,
+		refreshInterval:    config.RefreshInterval,
+		enabled:            config.Enabled,
+		httpClient:         httpClient,
+		stopChan:           make(chan struct{}),
+		logger:             logger,
 	}
 }
 
@@ -83,7 +82,7 @@ func (h *HTTPKnowledgeUpdater) Start(ctx context.Context) error {
 
 	h.logger.Info("Starting knowledge base refresh service",
 		slog.String("remote_url", h.remoteURL),
-		slog.String("local_file", h.localFilePath),
+		slog.String("ephemeral_cache", h.ephemeralCachePath),
 		slog.Duration("interval", h.refreshInterval))
 
 	h.ticker = time.NewTicker(h.refreshInterval)
@@ -142,21 +141,21 @@ func (h *HTTPKnowledgeUpdater) RefreshNow() error {
 		return fmt.Errorf("failed to fetch remote content: %w", err)
 	}
 
-	localContent, err := h.readLocalContent()
+	cachedContent, err := h.readEphemeralCache()
 	if err != nil {
 		h.updateStatus(err)
-		return fmt.Errorf("failed to read local content: %w", err)
+		return fmt.Errorf("failed to read ephemeral cache: %w", err)
 	}
 
-	if !h.contentChanged(localContent, remoteContent) {
+	if !h.contentChanged(cachedContent, remoteContent) {
 		h.logger.Info("Knowledge base content unchanged, skipping update")
 		h.updateStatus(nil)
 		return nil
 	}
 
-	if err := h.updateLocalContent(remoteContent); err != nil {
+	if err := h.updateEphemeralCache(remoteContent); err != nil {
 		h.updateStatus(err)
-		return fmt.Errorf("failed to update local content: %w", err)
+		return fmt.Errorf("failed to update ephemeral cache: %w", err)
 	}
 
 	h.mu.Lock()
@@ -222,15 +221,15 @@ func (h *HTTPKnowledgeUpdater) fetchRemoteContent() (string, error) {
 	return "", fmt.Errorf("all retry attempts failed")
 }
 
-func (h *HTTPKnowledgeUpdater) readLocalContent() (string, error) {
-	if _, err := os.Stat(h.localFilePath); os.IsNotExist(err) {
-		h.logger.Info("Local knowledge base file does not exist", slog.String("path", h.localFilePath))
+func (h *HTTPKnowledgeUpdater) readEphemeralCache() (string, error) {
+	if _, err := os.Stat(h.ephemeralCachePath); os.IsNotExist(err) {
+		h.logger.Info("Ephemeral knowledge base cache does not exist", slog.String("path", h.ephemeralCachePath))
 		return "", nil
 	}
 
-	content, err := os.ReadFile(h.localFilePath)
+	content, err := os.ReadFile(h.ephemeralCachePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read local file: %w", err)
+		return "", fmt.Errorf("failed to read ephemeral cache: %w", err)
 	}
 
 	return string(content), nil
@@ -261,54 +260,42 @@ func (h *HTTPKnowledgeUpdater) extractKnowledgeBase(content string) string {
 	return strings.Join(lines[1:], "\n")
 }
 
-func (h *HTTPKnowledgeUpdater) updateLocalContent(remoteContent string) error {
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(h.localFilePath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+func (h *HTTPKnowledgeUpdater) updateEphemeralCache(remoteContent string) error {
+	// Ensure /tmp directory is writable (should be by default)
+	if err := os.MkdirAll(filepath.Dir(h.ephemeralCachePath), 0755); err != nil {
+		return fmt.Errorf("failed to create ephemeral cache directory: %w", err)
 	}
 
-	// Read existing first line (system prompt) if file exists
-	var systemPrompt string
-	if content, err := os.ReadFile(h.localFilePath); err == nil {
-		scanner := bufio.NewScanner(strings.NewReader(string(content)))
-		if scanner.Scan() {
-			systemPrompt = scanner.Text()
-		}
-	}
-
-	// Create temporary file for atomic update
-	tmpFile := h.localFilePath + ".tmp"
+	// Create temporary file for atomic update in /tmp
+	tmpFile := h.ephemeralCachePath + ".tmp"
 	file, err := os.Create(tmpFile)
 	if err != nil {
-		return fmt.Errorf("failed to create temporary file: %w", err)
+		return fmt.Errorf("failed to create temporary cache file: %w", err)
 	}
 	defer file.Close()
 
-	// Write system prompt (if exists) followed by remote content
-	if systemPrompt != "" {
-		if _, err := file.WriteString(systemPrompt + "\n"); err != nil {
-			os.Remove(tmpFile)
-			return fmt.Errorf("failed to write system prompt: %w", err)
-		}
-	}
-
+	// Write remote content directly (no system prompt needed for ephemeral cache)
 	if _, err := file.WriteString(remoteContent); err != nil {
 		os.Remove(tmpFile)
-		return fmt.Errorf("failed to write remote content: %w", err)
+		return fmt.Errorf("failed to write remote content to cache: %w", err)
 	}
 
 	if err := file.Sync(); err != nil {
 		os.Remove(tmpFile)
-		return fmt.Errorf("failed to sync file: %w", err)
+		return fmt.Errorf("failed to sync cache file: %w", err)
 	}
 
 	file.Close()
 
 	// Atomic rename
-	if err := os.Rename(tmpFile, h.localFilePath); err != nil {
+	if err := os.Rename(tmpFile, h.ephemeralCachePath); err != nil {
 		os.Remove(tmpFile)
-		return fmt.Errorf("failed to rename temporary file: %w", err)
+		return fmt.Errorf("failed to rename temporary cache file: %w", err)
 	}
+
+	h.logger.Info("Ephemeral knowledge base cache updated successfully",
+		slog.String("cache_path", h.ephemeralCachePath),
+		slog.Int("content_size", len(remoteContent)))
 
 	return nil
 }

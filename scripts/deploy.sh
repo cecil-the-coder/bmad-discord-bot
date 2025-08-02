@@ -134,7 +134,6 @@ deploy_with_manifests() {
         "namespace.yaml"
         "serviceaccount.yaml"
         "configmap.yaml"
-        "persistentvolume.yaml"
         "deployment.yaml"
         "networkpolicy.yaml"
         "hpa.yaml"

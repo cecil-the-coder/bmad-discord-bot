@@ -71,6 +71,27 @@ func (m *MockStorageService) CleanupOldThreadOwnerships(ctx context.Context, max
 	return nil
 }
 
+// Status message methods (required by StorageService interface)
+func (m *MockStorageService) GetStatusMessagesBatch(ctx context.Context, limit int) ([]*storage.StatusMessage, error) {
+	return nil, nil
+}
+
+func (m *MockStorageService) AddStatusMessage(ctx context.Context, activityType, statusText string, enabled bool) error {
+	return nil
+}
+
+func (m *MockStorageService) UpdateStatusMessage(ctx context.Context, id int64, enabled bool) error {
+	return nil
+}
+
+func (m *MockStorageService) GetAllStatusMessages(ctx context.Context) ([]*storage.StatusMessage, error) {
+	return nil, nil
+}
+
+func (m *MockStorageService) GetEnabledStatusMessagesCount(ctx context.Context) (int, error) {
+	return 0, nil
+}
+
 // Configuration methods for testing
 func (m *MockStorageService) GetConfiguration(ctx context.Context, key string) (*storage.Configuration, error) {
 	if m.getError != nil {
@@ -715,4 +736,76 @@ func BenchmarkDatabaseConfigService_SetConfig(b *testing.B) {
 		key := fmt.Sprintf("benchmark_set_key_%d", i)
 		_ = service.SetConfig(ctx, key, "benchmark_value", "benchmark", "Benchmark set configuration")
 	}
+}
+
+func TestDatabaseConfigService_GetConfigIntWithDefault_ErrorCase(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewDatabaseConfigService(mockStorage)
+	ctx := context.Background()
+
+	// Initialize service first
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Set error after initialization
+	mockStorage.getError = fmt.Errorf("database connection failed")
+
+	// Test error case - should return default value
+	result := service.GetConfigIntWithDefault(ctx, "nonexistent_key", 42)
+	if result != 42 {
+		t.Errorf("Expected default value 42, got %d", result)
+	}
+}
+
+func TestDatabaseConfigService_GetConfigBoolWithDefault_ErrorCase(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewDatabaseConfigService(mockStorage)
+	ctx := context.Background()
+
+	// Initialize service first
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Set error after initialization
+	mockStorage.getError = fmt.Errorf("database connection failed")
+
+	// Test error case - should return default value
+	result := service.GetConfigBoolWithDefault(ctx, "nonexistent_key", true)
+	if result != true {
+		t.Errorf("Expected default value true, got %v", result)
+	}
+}
+
+func TestDatabaseConfigService_NotifyConfigChanges_Scenarios(t *testing.T) {
+	mockStorage := NewMockStorageService()
+	service := NewDatabaseConfigService(mockStorage)
+	ctx := context.Background()
+
+	// Initialize service
+	err := service.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Test with valid configuration change
+	configChange := &storage.Configuration{
+		Key:         "test_notify_key",
+		Value:       "test_notify_value",
+		Type:        "string",
+		Category:    "test",
+		Description: "Test notification",
+		CreatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().Unix(),
+	}
+
+	// This should not panic and should handle the notification gracefully
+	oldConfigs := make(map[string]*storage.Configuration)
+	newConfigs := map[string]*storage.Configuration{
+		"test_notify_key": configChange,
+	}
+	service.notifyConfigChanges(newConfigs, oldConfigs)
 }

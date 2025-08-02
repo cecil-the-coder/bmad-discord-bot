@@ -3,8 +3,8 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install security updates and build dependencies including SQLite
-RUN apk update && apk upgrade && apk add --no-cache git gcc musl-dev sqlite-dev
+# Install security updates and build dependencies
+RUN apk update && apk upgrade && apk add --no-cache git gcc musl-dev
 
 # Copy go mod and sum files
 COPY go.mod go.sum ./
@@ -15,8 +15,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application with CGO enabled for SQLite support
-RUN CGO_ENABLED=1 GOOS=linux go build \
+# Build the application (CGO disabled for MySQL-only operation)
+RUN CGO_ENABLED=0 GOOS=linux go build \
     -a -installsuffix cgo \
     -ldflags='-w -s' \
     -o main cmd/bot/main.go
@@ -30,19 +30,18 @@ LABEL description="Discord bot for knowledge management"
 LABEL version="1.0"
 LABEL security.scan="required"
 
-# Install CA certificates and SQLite runtime
-RUN apk update && apk add --no-cache ca-certificates sqlite
+# Install CA certificates
+RUN apk update && apk add --no-cache ca-certificates
 
 # Copy the binary with proper ownership and permissions
 COPY --from=builder --chown=node:node /app/main /app/main
 
-# Copy knowledge base files  
-COPY --chown=node:node internal/knowledge /app/internal/knowledge
+# Knowledge base files removed in Story 2.12 - now fetched from remote URL with ephemeral caching
 
-# Create logs and data directories with proper permissions
-RUN mkdir -p /app/logs /app/data && \
-    chown -R node:node /app/logs /app/data && \
-    chmod -R 775 /app/logs /app/data
+# Create logs directory with proper permissions (data directory removed in Story 2.12)
+RUN mkdir -p /app/logs && \
+    chown -R node:node /app/logs && \
+    chmod -R 775 /app/logs
 
 # Set proper file permissions
 USER node
