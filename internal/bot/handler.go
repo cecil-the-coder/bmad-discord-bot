@@ -37,12 +37,13 @@ type ReactionTriggerConfig struct {
 
 // Handler manages Discord event handling
 type Handler struct {
-	logger                *slog.Logger
-	aiService             service.AIService
-	storageService        storage.StorageService
-	threadOwnership       map[string]*ThreadOwnership // threadID -> ownership info
-	replyMentionConfig    ReplyMentionConfig          // Configuration for reply mention behavior
-	reactionTriggerConfig ReactionTriggerConfig       // Configuration for reaction-based triggers
+	logger                 *slog.Logger
+	aiService              service.AIService
+	storageService         storage.StorageService
+	threadOwnership        map[string]*ThreadOwnership // threadID -> ownership info
+	replyMentionConfig     ReplyMentionConfig          // Configuration for reply mention behavior
+	reactionTriggerConfig  ReactionTriggerConfig       // Configuration for reaction-based triggers
+	monitoredForumChannels []string                    // Forum channel IDs to monitor for automatic responses
 }
 
 // NewHandler creates a new bot event handler with default configuration
@@ -58,6 +59,7 @@ func NewHandler(logger *slog.Logger, aiService service.AIService, storageService
 		reactionTriggerConfig: ReactionTriggerConfig{
 			Enabled: false, // Default to disabled for safety
 		},
+		monitoredForumChannels: []string{}, // No monitored Forum channels by default
 	}
 }
 
@@ -72,18 +74,20 @@ func NewHandlerWithConfig(logger *slog.Logger, aiService service.AIService, stor
 		reactionTriggerConfig: ReactionTriggerConfig{
 			Enabled: false, // Default to disabled for safety
 		},
+		monitoredForumChannels: []string{}, // No monitored Forum channels by default
 	}
 }
 
 // NewHandlerWithFullConfig creates a new bot event handler with both reply mention and reaction trigger configuration
 func NewHandlerWithFullConfig(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService, replyConfig ReplyMentionConfig, reactionConfig ReactionTriggerConfig) *Handler {
 	return &Handler{
-		logger:                logger,
-		aiService:             aiService,
-		storageService:        storageService,
-		threadOwnership:       make(map[string]*ThreadOwnership),
-		replyMentionConfig:    replyConfig,
-		reactionTriggerConfig: reactionConfig,
+		logger:                 logger,
+		aiService:              aiService,
+		storageService:         storageService,
+		threadOwnership:        make(map[string]*ThreadOwnership),
+		replyMentionConfig:     replyConfig,
+		reactionTriggerConfig:  reactionConfig,
+		monitoredForumChannels: []string{}, // No monitored Forum channels by default
 	}
 }
 
@@ -99,6 +103,26 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 	if isDM {
 		h.processDMMessage(s, m)
 		return
+	}
+
+	// Get channel information for Forum and thread detection
+	var channel *discordgo.Channel
+	var err error
+	if s != nil && s.Ratelimiter != nil {
+		channel, err = s.Channel(m.ChannelID)
+		if err != nil {
+			h.logger.Error("Failed to get channel information", "error", err, "channel_id", m.ChannelID)
+			// Continue with normal processing if we can't get channel info
+		}
+	}
+
+	// Check if this is a Forum post and handle accordingly
+	if channel != nil {
+		isForumPost := h.isForumPost(s, channel)
+		if isForumPost {
+			h.processForumPost(s, m, channel)
+			return
+		}
 	}
 
 	// Detect thread context for proper handling
@@ -979,6 +1003,59 @@ func (h *Handler) GetThreadOwnership(threadID string) (*ThreadOwnership, bool) {
 	return h.getThreadOwnership(threadID)
 }
 
+// SetMonitoredForumChannels configures which Forum channels should be monitored for automatic responses
+func (h *Handler) SetMonitoredForumChannels(channelIDs []string) {
+	h.monitoredForumChannels = make([]string, len(channelIDs))
+	copy(h.monitoredForumChannels, channelIDs)
+	h.logger.Info("Monitored Forum channels configured", "count", len(channelIDs), "channels", channelIDs)
+}
+
+// isForumChannel checks if a channel is a Discord Forum channel
+func (h *Handler) isForumChannel(s *discordgo.Session, channelID string) bool {
+	if s == nil || s.Ratelimiter == nil {
+		h.logger.Error("Session or ratelimiter is nil, cannot check Forum status", "channel_id", channelID)
+		return false
+	}
+
+	channel, err := s.Channel(channelID)
+	if err != nil {
+		h.logger.Error("Failed to get channel information for Forum check", "error", err, "channel_id", channelID)
+		return false
+	}
+
+	return channel.Type == discordgo.ChannelTypeGuildForum
+}
+
+// isForumPost checks if a message is posted in a Forum post thread
+func (h *Handler) isForumPost(s *discordgo.Session, channel *discordgo.Channel) bool {
+	if channel == nil || s == nil {
+		return false
+	}
+
+	// Forum posts are threads within Forum channels
+	if channel.ParentID == "" {
+		return false
+	}
+
+	parentChannel, err := s.Channel(channel.ParentID)
+	if err != nil {
+		h.logger.Error("Failed to get parent channel for Forum post check", "error", err, "channel_id", channel.ID, "parent_id", channel.ParentID)
+		return false
+	}
+
+	return parentChannel.Type == discordgo.ChannelTypeGuildForum
+}
+
+// shouldMonitorForumChannel checks if a Forum channel should be monitored for automatic responses
+func (h *Handler) shouldMonitorForumChannel(channelID string) bool {
+	for _, monitoredID := range h.monitoredForumChannels {
+		if monitoredID == channelID {
+			return true
+		}
+	}
+	return false
+}
+
 // cleanupThreadOwnership removes old thread ownership records (called periodically)
 func (h *Handler) cleanupThreadOwnership(maxAge int64) {
 	currentTime := time.Now().Unix()
@@ -1046,16 +1123,25 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 	h.logger.Info("Response exceeds Discord limit, chunking message",
 		"response_length", len(formattedResponse),
 		"max_length", maxDiscordMessageLength,
-		"channel_id", channelID)
+		"channel_id", channelID,
+		"formatted_newlines", strings.Count(formattedResponse, "\n"))
 
 	// Split response into chunks at word boundaries to avoid breaking sentences
 	chunks := h.splitResponseIntoChunks(formattedResponse, maxDiscordMessageLength)
+
+	h.logger.Info("Message chunking completed",
+		"total_chunks", len(chunks),
+		"chunk_lengths", getChunkLengths(chunks))
 
 	for i, chunk := range chunks {
 		// Add chunk indicator for multi-part messages
 		var messageContent string
 		if len(chunks) > 1 {
 			messageContent = fmt.Sprintf("**[Part %d/%d]**\n%s", i+1, len(chunks), chunk)
+			h.logger.Info("Adding chunk header",
+				"chunk", i+1,
+				"header_added", fmt.Sprintf("**[Part %d/%d]**", i+1, len(chunks)),
+				"chunk_preview", truncateString(chunk, 50))
 		} else {
 			messageContent = chunk
 		}
@@ -1122,6 +1208,13 @@ func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []stri
 
 // formatForDiscord ensures proper line break formatting for Discord messages
 func (h *Handler) formatForDiscord(response string) string {
+	// DEBUG: Log original response details
+	originalNewlines := strings.Count(response, "\n")
+	h.logger.Info("formatForDiscord input analysis",
+		"original_length", len(response),
+		"original_newlines", originalNewlines,
+		"first_100_chars", truncateString(response, 100))
+
 	// Discord requires double line breaks for paragraph separation
 	// Convert any sequence of single newlines to double newlines for proper paragraph breaks
 
@@ -1133,6 +1226,10 @@ func (h *Handler) formatForDiscord(response string) string {
 	lines := strings.Split(normalized, "\n")
 	var formattedLines []string
 	var currentParagraph []string
+
+	h.logger.Info("formatForDiscord line processing",
+		"total_lines", len(lines),
+		"sample_lines", getSampleLines(lines, 3))
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
@@ -1165,7 +1262,45 @@ func (h *Handler) formatForDiscord(response string) string {
 		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
 	}
 
+	// DEBUG: Log formatting results
+	resultNewlines := strings.Count(result, "\n")
+	h.logger.Info("formatForDiscord output analysis",
+		"result_length", len(result),
+		"result_newlines", resultNewlines,
+		"length_change", len(result)-len(response),
+		"newlines_change", resultNewlines-originalNewlines,
+		"first_100_chars", truncateString(result, 100))
+
 	return result
+}
+
+// Helper function to truncate string for logging
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// Helper function to get sample lines for debugging
+func getSampleLines(lines []string, maxSamples int) []string {
+	if len(lines) <= maxSamples {
+		return lines
+	}
+	samples := make([]string, maxSamples)
+	for i := 0; i < maxSamples; i++ {
+		samples[i] = lines[i]
+	}
+	return samples
+}
+
+// Helper function to get chunk lengths for debugging
+func getChunkLengths(chunks []string) []int {
+	lengths := make([]int, len(chunks))
+	for i, chunk := range chunks {
+		lengths[i] = len(chunk)
+	}
+	return lengths
 }
 
 // recordMessageState persists the last seen message state to the database
@@ -1792,6 +1927,154 @@ func (h *Handler) fetchDMHistory(s *discordgo.Session, channelID string, limit i
 	h.logger.Info("DM history retrieved",
 		"total_messages", len(messages),
 		"channel_id", channelID)
+
+	return orderedMessages, nil
+}
+
+// processForumPost handles messages posted in Discord Forum post threads
+func (h *Handler) processForumPost(s *discordgo.Session, m *discordgo.MessageCreate, channel *discordgo.Channel) {
+	// Get the parent Forum channel ID
+	parentChannelID := channel.ParentID
+	if parentChannelID == "" {
+		h.logger.Error("Forum post has no parent channel", "channel_id", m.ChannelID)
+		return
+	}
+
+	h.logger.Info("Processing Forum post message",
+		"author", m.Author.Username,
+		"forum_post_id", m.ChannelID,
+		"parent_forum_id", parentChannelID,
+		"content_length", len(m.Content))
+
+	// Check if the parent Forum channel should be monitored
+	if !h.shouldMonitorForumChannel(parentChannelID) {
+		h.logger.Info("Forum channel not monitored, skipping automatic response",
+			"parent_forum_id", parentChannelID,
+			"forum_post_id", m.ChannelID)
+		return
+	}
+
+	h.logger.Info("Forum post in monitored channel, processing automatically",
+		"parent_forum_id", parentChannelID,
+		"forum_post_id", m.ChannelID,
+		"author", m.Author.Username)
+
+	// Record message state for Forum post (AC 2.14.5)
+	// Forum posts use the parent Forum channel ID and the post thread ID
+	h.recordForumMessageState(m, parentChannelID)
+
+	// Extract query text from the Forum post message
+	queryText := strings.TrimSpace(m.Content)
+	if queryText == "" {
+		h.logger.Info("Empty Forum post message", "forum_post_id", m.ChannelID, "author", m.Author.Username)
+		return
+	}
+
+	h.logger.Info("Processing Forum post query",
+		"forum_post_id", m.ChannelID,
+		"parent_forum_id", parentChannelID,
+		"query_length", len(queryText))
+
+	// Check if we have conversation history for this Forum post thread (AC 2.14.6)
+	forumHistory, historyErr := h.fetchForumPostHistory(s, m.ChannelID, 50)
+
+	var response string
+	var aiErr error
+
+	if historyErr != nil {
+		h.logger.Error("Failed to fetch Forum post history, using basic query",
+			"error", historyErr, "forum_post_id", m.ChannelID)
+		// Fallback to basic query if history retrieval fails
+		response, aiErr = h.aiService.QueryAI(queryText)
+	} else if len(forumHistory) > 1 { // More than just the current message
+		// Use contextual query with Forum post conversation history
+		conversationHistory := h.formatConversationHistory(forumHistory)
+		h.logger.Info("Using contextual Forum post query with history",
+			"history_messages", len(forumHistory),
+			"history_length", len(conversationHistory),
+			"forum_post_id", m.ChannelID)
+		response, aiErr = h.aiService.QueryWithContext(queryText, conversationHistory)
+	} else {
+		// First message in Forum post conversation
+		response, aiErr = h.aiService.QueryAI(queryText)
+	}
+
+	if aiErr != nil {
+		h.logger.Error("AI service error for Forum post", "error", aiErr, "forum_post_id", m.ChannelID)
+		errorMsg := "I'm sorry, I encountered an error while processing your request. Please try again later."
+		if _, err := s.ChannelMessageSend(m.ChannelID, errorMsg); err != nil {
+			h.logger.Error("Failed to send Forum post error response", "error", err, "forum_post_id", m.ChannelID)
+		}
+		return
+	}
+
+	// Send response directly in the Forum post thread (AC 2.14.4)
+	if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
+		h.logger.Error("Failed to send Forum post response", "error", err, "forum_post_id", m.ChannelID)
+	} else {
+		h.logger.Info("Forum post response sent successfully",
+			"forum_post_id", m.ChannelID,
+			"parent_forum_id", parentChannelID,
+			"response_length", len(response))
+	}
+}
+
+// recordForumMessageState persists Forum post message state to the database
+func (h *Handler) recordForumMessageState(m *discordgo.MessageCreate, parentForumChannelID string) {
+	if h.storageService == nil {
+		h.logger.Warn("Storage service not available, skipping Forum message state persistence")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// For Forum posts: channel_id = parent Forum channel, thread_id = Forum post thread
+	messageState := &storage.MessageState{
+		ChannelID:         parentForumChannelID, // Parent Forum channel ID
+		ThreadID:          &m.ChannelID,         // Forum post thread ID
+		LastMessageID:     m.ID,
+		LastSeenTimestamp: time.Now().Unix(),
+	}
+
+	// Persist state asynchronously to avoid blocking message processing
+	go func() {
+		err := h.storageService.UpsertMessageState(ctx, messageState)
+		if err != nil {
+			h.logger.Error("Failed to persist Forum message state",
+				"error", err,
+				"parent_forum_id", parentForumChannelID,
+				"forum_post_id", m.ChannelID,
+				"message_id", m.ID)
+		} else {
+			h.logger.Debug("Forum message state persisted successfully",
+				"parent_forum_id", parentForumChannelID,
+				"forum_post_id", m.ChannelID,
+				"message_id", m.ID)
+		}
+	}()
+}
+
+// fetchForumPostHistory retrieves message history from a Forum post thread for conversation context
+func (h *Handler) fetchForumPostHistory(s *discordgo.Session, forumPostID string, limit int) ([]*discordgo.Message, error) {
+	h.logger.Info("Fetching Forum post history", "forum_post_id", forumPostID, "limit", limit)
+
+	// Fetch messages from the Forum post thread (Discord returns in reverse chronological order)
+	messages, err := s.ChannelMessages(forumPostID, limit, "", "", "")
+	if err != nil {
+		h.logger.Error("Failed to fetch Forum post messages", "error", err, "forum_post_id", forumPostID)
+		return nil, fmt.Errorf("failed to fetch Forum post messages: %w", err)
+	}
+
+	// Reverse to chronological order and return all messages for Forum context
+	var orderedMessages []*discordgo.Message
+	for i := len(messages) - 1; i >= 0; i-- {
+		orderedMessages = append(orderedMessages, messages[i])
+	}
+
+	h.logger.Info("Forum post history retrieved",
+		"total_messages", len(messages),
+		"forum_post_id", forumPostID)
 
 	return orderedMessages, nil
 }

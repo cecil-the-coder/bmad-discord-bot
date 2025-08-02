@@ -90,6 +90,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Read and validate Forum monitoring configuration
+	forumConfig, err := loadForumConfig()
+	if err != nil {
+		slog.Error("Failed to load Forum monitoring configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize MySQL storage service (only supported database type)
 	mysqlConfig, err := loadMySQLConfig()
 	if err != nil {
@@ -239,6 +246,14 @@ func main() {
 			ApprovedRoleNames: reactionTriggerConfig.ApprovedRoleNames,
 			RequireReaction:   reactionTriggerConfig.RequireReaction,
 		})
+
+	// Configure Forum channel monitoring
+	if len(forumConfig.MonitoredChannels) > 0 {
+		handler.SetMonitoredForumChannels(forumConfig.MonitoredChannels)
+		slog.Info("Forum monitoring configured", "monitored_channels", len(forumConfig.MonitoredChannels))
+	} else {
+		slog.Info("No Forum channels configured for monitoring")
+	}
 
 	// Create Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -836,4 +851,61 @@ func loadKnowledgeBaseConfigFromService(configService config.ConfigService) (*se
 		"http_timeout", config.HTTPTimeout)
 
 	return config, nil
+}
+
+// ForumConfig holds configuration for Forum channel monitoring
+type ForumConfig struct {
+	MonitoredChannels []string // List of Forum channel IDs to monitor for automatic responses
+}
+
+// loadForumConfig loads Forum monitoring configuration from environment variables
+func loadForumConfig() (ForumConfig, error) {
+	config := ForumConfig{}
+
+	// Load monitored Forum channels (comma-separated list)
+	monitoredChannelsStr := os.Getenv("MONITORED_FORUM_CHANNELS")
+	if monitoredChannelsStr != "" {
+		channels := strings.Split(monitoredChannelsStr, ",")
+		var validChannels []string
+
+		// Validate and clean each channel ID
+		for _, channelID := range channels {
+			trimmedID := strings.TrimSpace(channelID)
+			if trimmedID == "" {
+				continue // Skip empty entries
+			}
+
+			// Validate Discord channel ID format
+			if err := validateDiscordChannelID(trimmedID); err != nil {
+				return config, err
+			}
+
+			validChannels = append(validChannels, trimmedID)
+		}
+
+		config.MonitoredChannels = validChannels
+	}
+
+	slog.Info("Forum monitoring configuration loaded",
+		"monitored_channel_count", len(config.MonitoredChannels),
+		"channels", config.MonitoredChannels)
+
+	return config, nil
+}
+
+// validateDiscordChannelID validates a Discord channel ID format (extracted for reusability)
+func validateDiscordChannelID(channelID string) error {
+	// Validate Discord channel ID format (17-19 digit snowflake)
+	if len(channelID) < 17 || len(channelID) > 19 {
+		return fmt.Errorf("invalid Discord channel ID format: %s (expected 17-19 digits)", channelID)
+	}
+
+	// Ensure all characters are digits
+	for _, char := range channelID {
+		if char < '0' || char > '9' {
+			return fmt.Errorf("invalid Discord channel ID format: %s (must contain only digits)", channelID)
+		}
+	}
+
+	return nil
 }
