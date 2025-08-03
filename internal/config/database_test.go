@@ -92,6 +92,23 @@ func (m *MockStorageService) GetEnabledStatusMessagesCount(ctx context.Context) 
 	return 0, nil
 }
 
+// New rate limiting methods required by interface
+func (m *MockStorageService) GetUserRateLimit(ctx context.Context, userID string, timeWindow string) (*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageService) UpsertUserRateLimit(ctx context.Context, rateLimit *storage.UserRateLimit) error {
+	return nil
+}
+func (m *MockStorageService) CleanupExpiredUserRateLimits(ctx context.Context, expiredBefore int64) error {
+	return nil
+}
+func (m *MockStorageService) GetUserRateLimitsByUser(ctx context.Context, userID string) ([]*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageService) ResetUserRateLimit(ctx context.Context, userID string, timeWindow string) error {
+	return nil
+}
+
 // Configuration methods for testing
 func (m *MockStorageService) GetConfiguration(ctx context.Context, key string) (*storage.Configuration, error) {
 	if m.getError != nil {

@@ -40,6 +40,7 @@ type Handler struct {
 	logger                 *slog.Logger
 	aiService              service.AIService
 	storageService         storage.StorageService
+	channelRestrictor      *ChannelRestrictor          // Channel restriction service
 	threadOwnership        map[string]*ThreadOwnership // threadID -> ownership info
 	replyMentionConfig     ReplyMentionConfig          // Configuration for reply mention behavior
 	reactionTriggerConfig  ReactionTriggerConfig       // Configuration for reaction-based triggers
@@ -48,11 +49,15 @@ type Handler struct {
 
 // NewHandler creates a new bot event handler with default configuration
 func NewHandler(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService) *Handler {
+	// Initialize channel restrictor
+	channelRestrictor := NewChannelRestrictor(storageService, logger)
+
 	return &Handler{
-		logger:          logger,
-		aiService:       aiService,
-		storageService:  storageService,
-		threadOwnership: make(map[string]*ThreadOwnership),
+		logger:            logger,
+		channelRestrictor: channelRestrictor,
+		aiService:         aiService,
+		storageService:    storageService,
+		threadOwnership:   make(map[string]*ThreadOwnership),
 		replyMentionConfig: ReplyMentionConfig{
 			DeleteReplyMessage: false, // Default to safer behavior
 		},
@@ -65,10 +70,14 @@ func NewHandler(logger *slog.Logger, aiService service.AIService, storageService
 
 // NewHandlerWithConfig creates a new bot event handler with custom reply mention configuration
 func NewHandlerWithConfig(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService, replyConfig ReplyMentionConfig) *Handler {
+	// Initialize channel restrictor
+	channelRestrictor := NewChannelRestrictor(storageService, logger)
+
 	return &Handler{
 		logger:             logger,
 		aiService:          aiService,
 		storageService:     storageService,
+		channelRestrictor:  channelRestrictor,
 		threadOwnership:    make(map[string]*ThreadOwnership),
 		replyMentionConfig: replyConfig,
 		reactionTriggerConfig: ReactionTriggerConfig{
@@ -80,10 +89,14 @@ func NewHandlerWithConfig(logger *slog.Logger, aiService service.AIService, stor
 
 // NewHandlerWithFullConfig creates a new bot event handler with both reply mention and reaction trigger configuration
 func NewHandlerWithFullConfig(logger *slog.Logger, aiService service.AIService, storageService storage.StorageService, replyConfig ReplyMentionConfig, reactionConfig ReactionTriggerConfig) *Handler {
+	// Initialize channel restrictor
+	channelRestrictor := NewChannelRestrictor(storageService, logger)
+
 	return &Handler{
 		logger:                 logger,
 		aiService:              aiService,
 		storageService:         storageService,
+		channelRestrictor:      channelRestrictor,
 		threadOwnership:        make(map[string]*ThreadOwnership),
 		replyMentionConfig:     replyConfig,
 		reactionTriggerConfig:  reactionConfig,
@@ -105,13 +118,28 @@ func (h *Handler) HandleMessageCreate(s *discordgo.Session, m *discordgo.Message
 		return
 	}
 
+	// Check channel restrictions for non-DM channels
+	ctx := context.Background()
+	allowed, err := h.channelRestrictor.IsChannelAllowed(ctx, m.ChannelID, false)
+	if err != nil {
+		h.logger.Error("Failed to check channel restrictions", "error", err, "channel_id", m.ChannelID)
+		// Continue processing on error to avoid blocking legitimate usage
+	} else if !allowed {
+		h.logger.Info("Message ignored due to channel restrictions",
+			"bot_id", s.State.User.ID,
+			"channel_id", m.ChannelID,
+			"author", m.Author.Username,
+			"content_length", len(m.Content))
+		return
+	}
+
 	// Get channel information for Forum and thread detection
 	var channel *discordgo.Channel
-	var err error
+	var channelErr error
 	if s != nil && s.Ratelimiter != nil {
-		channel, err = s.Channel(m.ChannelID)
-		if err != nil {
-			h.logger.Error("Failed to get channel information", "error", err, "channel_id", m.ChannelID)
+		channel, channelErr = s.Channel(m.ChannelID)
+		if channelErr != nil {
+			h.logger.Error("Failed to get channel information", "error", channelErr, "channel_id", m.ChannelID)
 			// Continue with normal processing if we can't get channel info
 		}
 	}
@@ -504,7 +532,7 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 	} else {
 		// If already in a thread, reply directly with contextual response
 		// Handle Discord's 2000 character limit by chunking if necessary
-		if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
+		if err := h.sendResponseInChunksWithOptions(s, m.ChannelID, response, true); err != nil {
 			h.logger.Error("Failed to send AI response in thread", "error", err)
 		} else {
 			h.logger.Info("AI contextual response sent successfully in existing thread",
@@ -571,7 +599,7 @@ func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.Mes
 
 	// Post the AI response as the first message in the newly created thread
 	// Handle Discord's 2000 character limit by chunking if necessary
-	if err := h.sendResponseInChunks(s, thread.ID, aiResponse); err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, thread.ID, aiResponse, true); err != nil {
 		h.logger.Error("Failed to send AI response in new thread", "error", err, "thread_id", thread.ID)
 
 		// If we can't post in the thread, try to reply in main channel as fallback
@@ -662,7 +690,7 @@ func (h *Handler) processReplyMentionInMainChannel(s *discordgo.Session, m *disc
 	responseWithAttribution := attributionText + aiResponse
 
 	// Post the AI response with attribution as the first message in the newly created thread
-	if err := h.sendResponseInChunks(s, thread.ID, responseWithAttribution); err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, thread.ID, responseWithAttribution, true); err != nil {
 		h.logger.Error("Failed to send AI response in new reply mention thread", "error", err, "thread_id", thread.ID)
 
 		// If we can't post in the thread, try to reply in main channel as fallback
@@ -735,7 +763,7 @@ func (h *Handler) processReplyMentionInThread(s *discordgo.Session, m *discordgo
 	responseWithAttribution := attributionText + response
 
 	// Send response with attribution in the existing thread
-	if err := h.sendResponseInChunks(s, m.ChannelID, responseWithAttribution); err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, m.ChannelID, responseWithAttribution, true); err != nil {
 		h.logger.Error("Failed to send AI response with attribution in thread", "error", err)
 	} else {
 		h.logger.Info("AI response with attribution sent successfully in existing thread",
@@ -1125,6 +1153,11 @@ func (h *Handler) RecoverThreadOwnership(ctx context.Context) error {
 
 // sendResponseInChunks sends a response message, splitting it into chunks if it exceeds Discord's 2000 character limit
 func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, response string) error {
+	return h.sendResponseInChunksWithOptions(s, channelID, response, false)
+}
+
+// sendResponseInChunksWithOptions sends a response message with chunking options
+func (h *Handler) sendResponseInChunksWithOptions(s *discordgo.Session, channelID string, response string, inThread bool) error {
 	const maxDiscordMessageLength = 2000
 
 	// Ensure proper Discord formatting for line breaks
@@ -1145,8 +1178,8 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 	// Try chunking without headers first
 	chunks := h.splitResponseIntoChunks(formattedResponse, maxDiscordMessageLength)
 
-	// Only add part indicators if we actually need multiple chunks
-	needsHeaders := len(chunks) > 1
+	// Only add part indicators if we actually need multiple chunks AND we're not in a thread
+	needsHeaders := len(chunks) > 1 && !inThread
 	if needsHeaders {
 		// Re-chunk with header space reserved
 		const headerReserve = 18 // "**[Part 999/999]**\n" = ~18 chars max
@@ -1156,7 +1189,8 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 	h.logger.Info("Message chunking completed",
 		"total_chunks", len(chunks),
 		"chunk_lengths", getChunkLengths(chunks),
-		"headers_needed", needsHeaders)
+		"headers_needed", needsHeaders,
+		"in_thread", inThread)
 
 	for i, chunk := range chunks {
 		// Add chunk indicator only if we determined headers are needed
@@ -1484,6 +1518,11 @@ func (h *Handler) recordMessageState(m *discordgo.MessageCreate, isInThread bool
 func (h *Handler) RecoverMissedMessages(s *discordgo.Session, recoveryWindowMinutes int) error {
 	if h.storageService == nil {
 		h.logger.Warn("Storage service not available, skipping message recovery")
+		return nil
+	}
+
+	if s == nil {
+		h.logger.Warn("Discord session not available, skipping message recovery")
 		return nil
 	}
 
@@ -1845,8 +1884,7 @@ func (h *Handler) processReactionTriggerInMainChannel(s *discordgo.Session, m *d
 	h.recordThreadOwnership(thread.ID, m.Author.ID, s.State.User.ID)
 
 	// Send response in the new thread (no attribution needed - reaction is the intent signal)
-	_, err = s.ChannelMessageSend(thread.ID, response)
-	if err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, thread.ID, response, true); err != nil {
 		h.logger.Error("Failed to send reaction trigger response in thread",
 			"error", err,
 			"thread_id", thread.ID,
@@ -1895,8 +1933,7 @@ func (h *Handler) processReactionTriggerInThread(s *discordgo.Session, m *discor
 	}
 
 	// Send response in the existing thread (no attribution needed - reaction is the intent signal)
-	_, err = s.ChannelMessageSend(m.ChannelID, response)
-	if err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, m.ChannelID, response, true); err != nil {
 		h.logger.Error("Failed to send reaction trigger response in thread",
 			"error", err,
 			"thread_id", m.ChannelID,
@@ -1975,7 +2012,7 @@ func (h *Handler) processDMMessage(s *discordgo.Session, m *discordgo.MessageCre
 	if !h.verifyGuildMembership(s, m.Author.ID) {
 		// Send informative response for non-members
 		response := "Hello! I'm the BMAD Knowledge Bot. To interact with me, you need to be a member of a server where I'm active. Please ask a server administrator to invite me to your server, or join a server where I'm already present."
-		if _, err := s.ChannelMessageSend(m.ChannelID, response); err != nil {
+		if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
 			h.logger.Error("Failed to send non-member response", "error", err, "user_id", m.Author.ID)
 		} else {
 			h.logger.Info("Sent non-member response", "user_id", m.Author.ID)
@@ -2226,7 +2263,7 @@ func (h *Handler) processForumPost(s *discordgo.Session, m *discordgo.MessageCre
 	}
 
 	// Send response directly in the Forum post thread (AC 2.14.4)
-	if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
+	if err := h.sendResponseInChunksWithOptions(s, m.ChannelID, response, true); err != nil {
 		h.logger.Error("Failed to send Forum post response", "error", err, "forum_post_id", m.ChannelID)
 	} else {
 		h.logger.Info("Forum post response sent successfully",
