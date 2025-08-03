@@ -7,6 +7,10 @@ metadata:
     app: bmad-discord-bot
     version: v1.0
     component: bot
+  annotations:
+    # Checkov skips for deployment requirements
+    checkov.io/skip1: CKV_K8S_35=Application architecture requires secrets as environment variables
+    checkov.io/skip2: CKV_K8S_14=Using latest tag for automated deployments from main branch
 spec:
   replicas: 1
   strategy:
@@ -26,10 +30,8 @@ spec:
       annotations:
         prometheus.io/scrape: "false"
         co.elastic.logs/enabled: "true"
-        # Checkov skip - application requires environment variables for secrets
-        checkov.io/skip1: CKV_K8S_35=Application architecture requires secrets as environment variables
-        # Checkov skip - using latest tag for continuous deployment from main branch
-        checkov.io/skip2: CKV_K8S_14=Using latest tag for automated deployments from main branch
+        # Checkov skips for deployment requirements
+        checkov.io/skip: CKV_K8S_35=Application architecture requires secrets as environment variables,CKV_K8S_14=Using latest tag for automated deployments from main branch
     spec:
       serviceAccountName: bmad-bot-sa
       automountServiceAccountToken: false

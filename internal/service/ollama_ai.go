@@ -1080,8 +1080,12 @@ func (o *OllamaAIService) cleanCitations(text string) string {
 	re := regexp.MustCompile(citationPattern)
 	cleaned := re.ReplaceAllString(text, "")
 
-	// Clean up any double spaces that might be left after removing citations
-	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
+	// Clean up any multiple consecutive spaces and tabs, but preserve newlines
+	// Only collapse horizontal whitespace (spaces and tabs), not vertical (newlines)
+	cleaned = regexp.MustCompile(`[ \t]+`).ReplaceAllString(cleaned, " ")
+
+	// Remove spaces at the end of lines (before newlines)
+	cleaned = regexp.MustCompile(` +\n`).ReplaceAllString(cleaned, "\n")
 
 	return strings.TrimSpace(cleaned)
 }
@@ -1224,8 +1228,10 @@ After your main answer, provide a concise, 8-word or less topic summary of this 
 		return "", err
 	}
 
-	// Clean citations from the response
-	return o.cleanCitations(response), nil
+	// Clean citations and remove summary markers from the response
+	cleanedResponse := o.cleanCitations(response)
+	cleanedResponse = o.removeSummaryMarkers(cleanedResponse)
+	return cleanedResponse, nil
 }
 
 // SummarizeConversation creates a summary of conversation history for context preservation

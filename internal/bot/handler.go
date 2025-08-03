@@ -437,6 +437,10 @@ func (h *Handler) processAIQueryWithContext(s *discordgo.Session, m *discordgo.M
 func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreate, query string, isInThread bool) {
 	h.logger.Info("Processing AI query", "query", query, "in_thread", isInThread)
 
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
+
 	var response string
 	var err error
 
@@ -514,6 +518,10 @@ func (h *Handler) processAIQuery(s *discordgo.Session, m *discordgo.MessageCreat
 func (h *Handler) processMainChannelQuery(s *discordgo.Session, m *discordgo.MessageCreate, query string, response string) {
 	h.logger.Info("Processing main channel query, creating thread with integrated summarization", "query", query)
 
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
+
 	// Use integrated query with summary to get both response and thread title in one API call
 	aiResponse, summary, err := h.aiService.QueryAIWithSummary(query)
 	if err != nil {
@@ -588,6 +596,10 @@ func (h *Handler) processReplyMentionInMainChannel(s *discordgo.Session, m *disc
 	h.logger.Info("Processing reply mention in main channel, creating thread with attribution",
 		"query", query,
 		"referenced_author", referencedMessage.Author.Username)
+
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
 
 	// Use integrated query with summary to get both response and thread title in one API call
 	aiResponse, summary, err := h.aiService.QueryAIWithSummary(query)
@@ -674,6 +686,10 @@ func (h *Handler) processReplyMentionInThread(s *discordgo.Session, m *discordgo
 		"query", query,
 		"thread_id", m.ChannelID,
 		"referenced_author", referencedMessage.Author.Username)
+
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
 
 	var response string
 	var err error
@@ -1126,17 +1142,26 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 		"channel_id", channelID,
 		"formatted_newlines", strings.Count(formattedResponse, "\n"))
 
-	// Split response into chunks at word boundaries to avoid breaking sentences
+	// Try chunking without headers first
 	chunks := h.splitResponseIntoChunks(formattedResponse, maxDiscordMessageLength)
+
+	// Only add part indicators if we actually need multiple chunks
+	needsHeaders := len(chunks) > 1
+	if needsHeaders {
+		// Re-chunk with header space reserved
+		const headerReserve = 18 // "**[Part 999/999]**\n" = ~18 chars max
+		chunks = h.splitResponseIntoChunks(formattedResponse, maxDiscordMessageLength-headerReserve)
+	}
 
 	h.logger.Info("Message chunking completed",
 		"total_chunks", len(chunks),
-		"chunk_lengths", getChunkLengths(chunks))
+		"chunk_lengths", getChunkLengths(chunks),
+		"headers_needed", needsHeaders)
 
 	for i, chunk := range chunks {
-		// Add chunk indicator for multi-part messages
+		// Add chunk indicator only if we determined headers are needed
 		var messageContent string
-		if len(chunks) > 1 {
+		if needsHeaders {
 			messageContent = fmt.Sprintf("**[Part %d/%d]**\n%s", i+1, len(chunks), chunk)
 			h.logger.Info("Adding chunk header",
 				"chunk", i+1,
@@ -1171,9 +1196,8 @@ func (h *Handler) sendResponseInChunks(s *discordgo.Session, channelID string, r
 
 // splitResponseIntoChunks splits a long response into chunks at word boundaries
 func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []string {
-	// Reserve space for chunk headers like "**[Part 1/X]**\n"
-	const headerReserve = 20
-	chunkSize := maxLength - headerReserve
+	// Use the actual max length provided (caller handles header reservation if needed)
+	chunkSize := maxLength
 
 	if len(response) <= chunkSize {
 		return []string{response}
@@ -1194,16 +1218,94 @@ func (h *Handler) splitResponseIntoChunks(response string, maxLength int) []stri
 			cutPoint = chunkSize
 		}
 
-		chunks = append(chunks, strings.TrimSpace(remaining[:cutPoint]))
-		remaining = strings.TrimSpace(remaining[cutPoint:])
+		// Extract chunk and preserve content
+		chunk := remaining[:cutPoint]
+		chunks = append(chunks, strings.TrimSpace(chunk))
+
+		// Move to next section, skipping only the exact cut character if it's whitespace
+		if cutPoint < len(remaining) && (remaining[cutPoint] == ' ' || remaining[cutPoint] == '\n') {
+			remaining = remaining[cutPoint+1:]
+		} else {
+			remaining = remaining[cutPoint:]
+		}
 	}
 
 	// Add the remaining text as the final chunk
 	if len(remaining) > 0 {
-		chunks = append(chunks, remaining)
+		chunks = append(chunks, strings.TrimSpace(remaining))
 	}
 
 	return chunks
+}
+
+// triggerTypingIndicator starts a persistent typing indicator for the given channel
+// It returns a cancel function that should be called when processing is complete
+func (h *Handler) triggerTypingIndicator(s *discordgo.Session, channelID string) context.CancelFunc {
+	// Create a context that can be cancelled when processing is done
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start a goroutine that maintains the typing indicator
+	go func() {
+		// Check if session is valid
+		if s == nil {
+			h.logger.Warn("Cannot start typing indicator with nil session",
+				"channel_id", channelID)
+			return
+		}
+
+		// Check if session's rate limiter is valid
+		if s.Ratelimiter == nil {
+			h.logger.Warn("Cannot start typing indicator with nil rate limiter",
+				"channel_id", channelID)
+			return
+		}
+
+		// Send initial typing indicator
+		err := s.ChannelTyping(channelID)
+		if err != nil {
+			h.logger.Warn("Failed to start typing indicator",
+				"error", err,
+				"channel_id", channelID)
+			return
+		}
+
+		h.logger.Debug("Typing indicator started",
+			"channel_id", channelID)
+
+		// Create a ticker that fires every 8 seconds (before 10-second Discord expiry)
+		ticker := time.NewTicker(8 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Processing is complete, stop the typing indicator
+				h.logger.Debug("Typing indicator stopped",
+					"channel_id", channelID)
+				return
+			case <-ticker.C:
+				// Check if session is still valid
+				if s == nil {
+					h.logger.Warn("Session became nil, stopping typing indicator",
+						"channel_id", channelID)
+					return
+				}
+
+				// Refresh the typing indicator before it expires
+				err := s.ChannelTyping(channelID)
+				if err != nil {
+					h.logger.Warn("Failed to refresh typing indicator",
+						"error", err,
+						"channel_id", channelID)
+					return
+				}
+				h.logger.Debug("Typing indicator refreshed",
+					"channel_id", channelID)
+			}
+		}
+	}()
+
+	return cancel
 }
 
 // formatForDiscord ensures proper line break formatting for Discord messages
@@ -1215,8 +1317,8 @@ func (h *Handler) formatForDiscord(response string) string {
 		"original_newlines", originalNewlines,
 		"first_100_chars", truncateString(response, 100))
 
-	// Discord requires double line breaks for paragraph separation
-	// Convert any sequence of single newlines to double newlines for proper paragraph breaks
+	// Preserve AI response formatting while normalizing line endings
+	// Discord handles single and double newlines appropriately
 
 	// First, normalize line endings to \n
 	normalized := strings.ReplaceAll(response, "\r\n", "\n")
@@ -1225,33 +1327,22 @@ func (h *Handler) formatForDiscord(response string) string {
 	// Split into lines and rebuild with proper Discord formatting
 	lines := strings.Split(normalized, "\n")
 	var formattedLines []string
-	var currentParagraph []string
 
 	h.logger.Info("formatForDiscord line processing",
 		"total_lines", len(lines),
 		"sample_lines", getSampleLines(lines, 3))
 
 	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
+		// Preserve the line as-is, only normalize extreme whitespace
+		cleanLine := strings.TrimSpace(line)
 
-		// If we hit an empty line or line that's clearly a paragraph break
-		if trimmedLine == "" {
-			// End current paragraph if we have content
-			if len(currentParagraph) > 0 {
-				formattedLines = append(formattedLines, strings.Join(currentParagraph, " "))
-				currentParagraph = nil
-			}
-			// Add empty line for paragraph break (Discord needs double \n)
+		// Empty lines become paragraph breaks
+		if cleanLine == "" {
 			formattedLines = append(formattedLines, "")
 		} else {
-			// Add to current paragraph
-			currentParagraph = append(currentParagraph, trimmedLine)
+			// Keep all non-empty lines as separate lines to preserve formatting
+			formattedLines = append(formattedLines, cleanLine)
 		}
-	}
-
-	// Don't forget the last paragraph
-	if len(currentParagraph) > 0 {
-		formattedLines = append(formattedLines, strings.Join(currentParagraph, " "))
 	}
 
 	// Join with single newlines - Discord will render double newlines as paragraph breaks
@@ -1310,8 +1401,9 @@ func (h *Handler) recordMessageState(m *discordgo.MessageCreate, isInThread bool
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Context no longer needed since persistence is async with independent context
+	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// defer cancel()
 
 	var threadID *string
 	var channelID string
@@ -1334,18 +1426,56 @@ func (h *Handler) recordMessageState(m *discordgo.MessageCreate, isInThread bool
 
 	// Attempt to persist state asynchronously to avoid blocking message processing
 	go func() {
-		err := h.storageService.UpsertMessageState(ctx, messageState)
-		if err != nil {
-			h.logger.Error("Failed to persist message state",
-				"error", err,
-				"channel_id", channelID,
-				"thread_id", threadID,
-				"message_id", m.ID)
-		} else {
-			h.logger.Debug("Message state persisted successfully",
-				"channel_id", channelID,
-				"thread_id", threadID,
-				"message_id", m.ID)
+		// Create independent context with timeout for database operation
+		dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Retry logic for database operations
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			err := h.storageService.UpsertMessageState(dbCtx, messageState)
+			if err == nil {
+				h.logger.Debug("Message state persisted successfully",
+					"channel_id", channelID,
+					"thread_id", threadID,
+					"message_id", m.ID,
+					"attempt", attempt)
+				return
+			}
+
+			// Check if context was canceled
+			if dbCtx.Err() != nil {
+				h.logger.Warn("Message state persistence canceled due to timeout",
+					"error", err,
+					"context_error", dbCtx.Err(),
+					"channel_id", channelID,
+					"thread_id", threadID,
+					"message_id", m.ID,
+					"attempt", attempt)
+				return
+			}
+
+			// Log retry attempt
+			if attempt < maxRetries {
+				h.logger.Warn("Message state persistence failed, retrying",
+					"error", err,
+					"channel_id", channelID,
+					"thread_id", threadID,
+					"message_id", m.ID,
+					"attempt", attempt,
+					"max_retries", maxRetries)
+
+				// Brief backoff before retry
+				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			} else {
+				// Final attempt failed
+				h.logger.Error("Failed to persist message state after all retries",
+					"error", err,
+					"channel_id", channelID,
+					"thread_id", threadID,
+					"message_id", m.ID,
+					"attempts", maxRetries)
+			}
 		}
 	}()
 }
@@ -1863,7 +1993,17 @@ func (h *Handler) processDMMessage(s *discordgo.Session, m *discordgo.MessageCre
 		return
 	}
 
+	// Handle /clear command to reset conversation history (AC 2.15.10)
+	if strings.ToLower(queryText) == "/clear" {
+		h.handleDMClearCommand(s, m)
+		return
+	}
+
 	h.logger.Info("Processing DM query", "user_id", m.Author.ID, "query_length", len(queryText))
+
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
 
 	// Check if we have conversation history for this DM channel (AC 2.13.4)
 	dmHistory, historyErr := h.fetchDMHistory(s, m.ChannelID, 50)
@@ -1897,19 +2037,34 @@ func (h *Handler) processDMMessage(s *discordgo.Session, m *discordgo.MessageCre
 		return
 	}
 
+	// Add helpful reminder about /clear command (AC 2.15.10)
+	responseWithReminder := h.addClearCommandReminder(response)
+
 	// Send response directly in DM channel (AC 2.13.5)
-	if err := h.sendResponseInChunks(s, m.ChannelID, response); err != nil {
+	if err := h.sendResponseInChunks(s, m.ChannelID, responseWithReminder); err != nil {
 		h.logger.Error("Failed to send DM response", "error", err, "user_id", m.Author.ID)
 	} else {
 		h.logger.Info("DM response sent successfully",
 			"user_id", m.Author.ID,
-			"response_length", len(response))
+			"response_length", len(responseWithReminder))
 	}
 }
 
 // fetchDMHistory retrieves message history from a DM channel for conversation context
 func (h *Handler) fetchDMHistory(s *discordgo.Session, channelID string, limit int) ([]*discordgo.Message, error) {
 	h.logger.Info("Fetching DM history", "channel_id", channelID, "limit", limit)
+
+	// Check if session is valid
+	if s == nil {
+		h.logger.Error("Cannot fetch DM history with nil session", "channel_id", channelID)
+		return nil, fmt.Errorf("session is nil")
+	}
+
+	// Check if session's rate limiter is valid
+	if s.Ratelimiter == nil {
+		h.logger.Error("Cannot fetch DM history with nil rate limiter", "channel_id", channelID)
+		return nil, fmt.Errorf("session rate limiter is nil")
+	}
 
 	// Fetch messages from the DM channel (Discord returns in reverse chronological order)
 	messages, err := s.ChannelMessages(channelID, limit, "", "", "")
@@ -1929,6 +2084,64 @@ func (h *Handler) fetchDMHistory(s *discordgo.Session, channelID string, limit i
 		"channel_id", channelID)
 
 	return orderedMessages, nil
+}
+
+// handleDMClearCommand processes the /clear command to reset DM conversation history
+func (h *Handler) handleDMClearCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	h.logger.Info("Processing /clear command in DM", "user_id", m.Author.ID, "channel_id", m.ChannelID)
+
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
+
+	// Clear conversation history by clearing message state for this DM channel
+	if h.storageService != nil {
+		go func() {
+			// Create independent context with timeout for database operation
+			dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Clear the message state for this DM channel to reset conversation history
+			// We do this by setting a new message state with only the current /clear message
+			messageState := &storage.MessageState{
+				ChannelID:         m.ChannelID,
+				ThreadID:          nil, // DMs don't have threads
+				LastMessageID:     m.ID,
+				LastSeenTimestamp: time.Now().Unix(),
+			}
+
+			err := h.storageService.UpsertMessageState(dbCtx, messageState)
+			if err != nil {
+				h.logger.Error("Failed to clear DM conversation state",
+					"error", err,
+					"channel_id", m.ChannelID,
+					"user_id", m.Author.ID)
+			} else {
+				h.logger.Info("DM conversation state cleared successfully",
+					"channel_id", m.ChannelID,
+					"user_id", m.Author.ID)
+			}
+		}()
+	}
+
+	// Send confirmation response
+	confirmationMsg := "✅ **Conversation cleared!**\n\n" +
+		"Your conversation history has been reset. I'm ready for a fresh start! " +
+		"Feel free to ask me anything about BMAD methods, development practices, or any questions you have.\n\n" +
+		"*You can use `/clear` anytime to start a new conversation.*"
+
+	if err := h.sendResponseInChunks(s, m.ChannelID, confirmationMsg); err != nil {
+		h.logger.Error("Failed to send /clear confirmation", "error", err, "user_id", m.Author.ID)
+	} else {
+		h.logger.Info("/clear command processed successfully", "user_id", m.Author.ID)
+	}
+}
+
+// addClearCommandReminder adds a helpful note about the /clear command to DM responses
+func (h *Handler) addClearCommandReminder(response string) string {
+	// Add a subtle reminder about the /clear command at the end of responses
+	reminder := "\n\n*💡 Tip: Send `/clear` to start a fresh conversation anytime.*"
+	return response + reminder
 }
 
 // processForumPost handles messages posted in Discord Forum post threads
@@ -1974,6 +2187,10 @@ func (h *Handler) processForumPost(s *discordgo.Session, m *discordgo.MessageCre
 		"forum_post_id", m.ChannelID,
 		"parent_forum_id", parentChannelID,
 		"query_length", len(queryText))
+
+	// Start typing indicator to show the bot is processing
+	stopTyping := h.triggerTypingIndicator(s, m.ChannelID)
+	defer stopTyping() // Ensure typing stops when function exits
 
 	// Check if we have conversation history for this Forum post thread (AC 2.14.6)
 	forumHistory, historyErr := h.fetchForumPostHistory(s, m.ChannelID, 50)
@@ -2026,8 +2243,9 @@ func (h *Handler) recordForumMessageState(m *discordgo.MessageCreate, parentForu
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Context no longer needed since persistence is async with independent context
+	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// defer cancel()
 
 	// For Forum posts: channel_id = parent Forum channel, thread_id = Forum post thread
 	messageState := &storage.MessageState{
@@ -2039,18 +2257,56 @@ func (h *Handler) recordForumMessageState(m *discordgo.MessageCreate, parentForu
 
 	// Persist state asynchronously to avoid blocking message processing
 	go func() {
-		err := h.storageService.UpsertMessageState(ctx, messageState)
-		if err != nil {
-			h.logger.Error("Failed to persist Forum message state",
-				"error", err,
-				"parent_forum_id", parentForumChannelID,
-				"forum_post_id", m.ChannelID,
-				"message_id", m.ID)
-		} else {
-			h.logger.Debug("Forum message state persisted successfully",
-				"parent_forum_id", parentForumChannelID,
-				"forum_post_id", m.ChannelID,
-				"message_id", m.ID)
+		// Create independent context with timeout for database operation
+		dbCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Retry logic for database operations
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			err := h.storageService.UpsertMessageState(dbCtx, messageState)
+			if err == nil {
+				h.logger.Debug("Forum message state persisted successfully",
+					"parent_forum_id", parentForumChannelID,
+					"forum_post_id", m.ChannelID,
+					"message_id", m.ID,
+					"attempt", attempt)
+				return
+			}
+
+			// Check if context was canceled
+			if dbCtx.Err() != nil {
+				h.logger.Warn("Forum message state persistence canceled due to timeout",
+					"error", err,
+					"context_error", dbCtx.Err(),
+					"parent_forum_id", parentForumChannelID,
+					"forum_post_id", m.ChannelID,
+					"message_id", m.ID,
+					"attempt", attempt)
+				return
+			}
+
+			// Log retry attempt
+			if attempt < maxRetries {
+				h.logger.Warn("Forum message state persistence failed, retrying",
+					"error", err,
+					"parent_forum_id", parentForumChannelID,
+					"forum_post_id", m.ChannelID,
+					"message_id", m.ID,
+					"attempt", attempt,
+					"max_retries", maxRetries)
+
+				// Brief backoff before retry
+				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			} else {
+				// Final attempt failed
+				h.logger.Error("Failed to persist Forum message state after all retries",
+					"error", err,
+					"parent_forum_id", parentForumChannelID,
+					"forum_post_id", m.ChannelID,
+					"message_id", m.ID,
+					"attempts", maxRetries)
+			}
 		}
 	}()
 }

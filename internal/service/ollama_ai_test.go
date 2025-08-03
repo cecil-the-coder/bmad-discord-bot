@@ -457,6 +457,133 @@ func TestQueryWithContext(t *testing.T) {
 	}
 }
 
+// TestQueryWithContextSummaryRemoval tests that QueryWithContext removes summary markers
+func TestQueryWithContextSummaryRemoval(t *testing.T) {
+	tempFile, err := os.CreateTemp("", "test_bmad_*.md")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	testKnowledge := "Test BMAD knowledge base content"
+	if _, err := tempFile.WriteString(testKnowledge); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tempFile.Close()
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return a response with summary markers that should be removed
+		response := OllamaResponse{
+			Model:    "devstral",
+			Response: "This is the main response content.\n\n[SUMMARY]: Brief Summary",
+			Done:     true,
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer mockServer.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	service := &OllamaAIService{
+		client:             &http.Client{Timeout: 10 * time.Second},
+		baseURL:            mockServer.URL,
+		modelName:          "devstral",
+		timeout:            10 * time.Second,
+		logger:             logger,
+		bmadKnowledgeBase:  testKnowledge,
+		ephemeralCachePath: tempFile.Name(),
+	}
+
+	history := "Previous conversation"
+	response, err := service.QueryWithContext("Test query", history)
+	if err != nil {
+		t.Fatalf("QueryWithContext failed: %v", err)
+	}
+
+	// The response should not contain the summary marker
+	if strings.Contains(response, "[SUMMARY]:") {
+		t.Errorf("Response should not contain summary markers, got: %s", response)
+	}
+
+	// The response should contain the main content but not the summary
+	expectedContent := "This is the main response content."
+	if !strings.Contains(response, expectedContent) {
+		t.Errorf("Response should contain main content, got: %s", response)
+	}
+
+	// Ensure the summary portion is completely removed
+	if strings.Contains(response, "Brief Summary") {
+		t.Errorf("Response should not contain summary content, got: %s", response)
+	}
+}
+
+// TestQueryWithContextRealWorldExample tests with content similar to the user's reported issue
+func TestQueryWithContextRealWorldExample(t *testing.T) {
+	tempFile, err := os.CreateTemp("", "test_bmad_*.md")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	testKnowledge := "Test BMAD knowledge base content"
+	if _, err := tempFile.WriteString(testKnowledge); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tempFile.Close()
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return a response similar to what the user reported
+		response := OllamaResponse{
+			Model: "devstral",
+			Response: `only when their skills are needed.
+- **Modular Approach**: Easily integrate or exclude agents based on project requirements.
+
+### Conclusion
+
+The BMad-Method framework leverages the strengths of various specialized agents to create a cohesive and efficient development process. Each agent contributes to a specific phase, ensuring that all aspects of software development are covered comprehensively.
+
+[SUMMARY]: BMAD Roles and Responsibilities`,
+			Done: true,
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer mockServer.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	service := &OllamaAIService{
+		client:             &http.Client{Timeout: 10 * time.Second},
+		baseURL:            mockServer.URL,
+		modelName:          "devstral",
+		timeout:            10 * time.Second,
+		logger:             logger,
+		bmadKnowledgeBase:  testKnowledge,
+		ephemeralCachePath: tempFile.Name(),
+	}
+
+	history := "Previous conversation about BMAD"
+	response, err := service.QueryWithContext("Tell me about the framework", history)
+	if err != nil {
+		t.Fatalf("QueryWithContext failed: %v", err)
+	}
+
+	// The response should not contain the summary marker or content
+	if strings.Contains(response, "[SUMMARY]:") {
+		t.Errorf("Response should not contain [SUMMARY]: marker, got: %s", response)
+	}
+	if strings.Contains(response, "BMAD Roles and Responsibilities") {
+		t.Errorf("Response should not contain summary content, got: %s", response)
+	}
+
+	// The response should contain the main content but end before the summary
+	if !strings.Contains(response, "comprehensively.") {
+		t.Errorf("Response should contain main content, got: %s", response)
+	}
+
+	// Log the actual response for debugging
+	t.Logf("Cleaned response: %q", response)
+}
+
 // TestSummarizeConversation tests conversation summarization
 func TestSummarizeConversation(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -730,4 +857,121 @@ func (m *MockRateLimiter) SetQuotaExhausted(providerID string, resetTime time.Ti
 }
 
 func (m *MockRateLimiter) ClearQuotaExhaustion(providerID string) {
+}
+
+// TestCleanCitations tests the citation cleaning functionality while preserving newlines
+func TestCleanCitations(t *testing.T) {
+	// Create test service
+	service := &OllamaAIService{}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Simple citation removal",
+			input:    "This is text [cite: 1] with citation.",
+			expected: "This is text with citation.",
+		},
+		{
+			name:     "Multiple citations",
+			input:    "Text [cite: 1] and [cite: 2, 3] more text.",
+			expected: "Text and more text.",
+		},
+		{
+			name:     "Preserve newlines with citations",
+			input:    "Paragraph 1 [cite: 1]\n\nParagraph 2 [cite: 2]\n\nParagraph 3",
+			expected: "Paragraph 1\n\nParagraph 2\n\nParagraph 3",
+		},
+		{
+			name:     "Preserve single newlines",
+			input:    "Line 1\nLine 2 [cite: 1]\nLine 3",
+			expected: "Line 1\nLine 2\nLine 3",
+		},
+		{
+			name:     "Clean multiple spaces but preserve newlines",
+			input:    "Text    with    spaces [cite: 1]\n\nNext    paragraph",
+			expected: "Text with spaces\n\nNext paragraph",
+		},
+		{
+			name:     "Complex formatting with citations",
+			input:    "**Bold text** [cite: 1]\n\n- Bullet point [cite: 2]\n- Another point\n\n```code block```",
+			expected: "**Bold text**\n\n- Bullet point\n- Another point\n\n```code block```",
+		},
+		{
+			name:     "Citations with complex numbers",
+			input:    "Text [cite: 1,2,3] and [cite: 4, 5, 6] end.",
+			expected: "Text and end.",
+		},
+		{
+			name:     "No citations to clean",
+			input:    "Regular text\n\nWith paragraphs\nAnd lines",
+			expected: "Regular text\n\nWith paragraphs\nAnd lines",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Only whitespace and citations",
+			input:    "   [cite: 1]   [cite: 2]   ",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := service.cleanCitations(tt.input)
+			if result != tt.expected {
+				t.Errorf("cleanCitations() = %q, expected %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestCleanCitationsNewlinePreservation specifically tests newline preservation
+func TestCleanCitationsNewlinePreservation(t *testing.T) {
+	service := &OllamaAIService{}
+
+	// Test various newline scenarios
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Double newlines preserved",
+			input:    "Para 1 [cite: 1]\n\nPara 2",
+			expected: "Para 1\n\nPara 2",
+		},
+		{
+			name:     "Single newlines preserved",
+			input:    "Line 1 [cite: 1]\nLine 2",
+			expected: "Line 1\nLine 2",
+		},
+		{
+			name:     "Mixed newlines preserved",
+			input:    "Title [cite: 1]\n\nBody line 1\nBody line 2\n\nConclusion",
+			expected: "Title\n\nBody line 1\nBody line 2\n\nConclusion",
+		},
+		{
+			name:     "Trailing newlines handled correctly",
+			input:    "Text [cite: 1]\n\n",
+			expected: "Text",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := service.cleanCitations(tc.input)
+			if result != tc.expected {
+				t.Errorf("Expected %q, got %q", tc.expected, result)
+				// Show character-by-character comparison for debugging
+				t.Errorf("Expected bytes: %v", []byte(tc.expected))
+				t.Errorf("Got bytes: %v", []byte(result))
+			}
+		})
+	}
 }
