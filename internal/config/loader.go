@@ -156,6 +156,11 @@ func (m *ConfigurationMigrator) MigrateEnvironmentVariables(ctx context.Context)
 		// Rate limiting configuration
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE", "rate_limiting", "Ollama API rate limit per minute", "int"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY", "rate_limiting", "Ollama API rate limit per day", "int"},
+		{"USER_RATE_LIMIT_PER_MINUTE", "rate_limiting", "User rate limit per minute", "int"},
+		{"USER_RATE_LIMIT_PER_HOUR", "rate_limiting", "User rate limit per hour", "int"},
+		{"USER_RATE_LIMIT_PER_DAY", "rate_limiting", "User rate limit per day", "int"},
+		{"ADMIN_ROLE_NAMES", "rate_limiting", "Comma-separated list of admin role names that bypass rate limits", "string"},
+		{"RATE_LIMITING_ENABLED", "rate_limiting", "Enable user rate limiting", "bool"},
 
 		// Feature flags
 		{"BMAD_KB_REFRESH_ENABLED", "features", "Enable knowledge base refresh functionality", "bool"},
@@ -165,6 +170,12 @@ func (m *ConfigurationMigrator) MigrateEnvironmentVariables(ctx context.Context)
 		// AI service configuration
 		{"OLLAMA_HOST", "ai_services", "Ollama service host address", "string"},
 		{"OLLAMA_MODEL", "ai_services", "Default Ollama model to use", "string"},
+
+		// Channel restrictions configuration
+		{"ALLOWED_CHANNEL_IDS", "channel_restrictions", "Comma-separated list of allowed channel IDs", "string"},
+		{"CHANNEL_RESTRICTIONS_ENABLED", "channel_restrictions", "Enable channel restrictions", "bool"},
+		{"RESTRICT_DMS", "channel_restrictions", "Restrict bot operations in DM channels", "bool"},
+		{"ADMIN_CHANNEL_BYPASS_ENABLED", "channel_restrictions", "Allow admin users to bypass channel restrictions", "bool"},
 
 		// System configuration
 		{"BOT_STATUS_UPDATE_INTERVAL", "system", "Interval for bot status updates", "duration"},
@@ -220,6 +231,11 @@ func (m *ConfigurationMigrator) SeedDefaultConfigurations(ctx context.Context) e
 		// Default rate limits
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_MINUTE", "60", "int", "rate_limiting", "Default Ollama API rate limit per minute"},
 		{"AI_PROVIDER_OLLAMA_RATE_LIMIT_PER_DAY", "2000", "int", "rate_limiting", "Default Ollama API rate limit per day"},
+		{"USER_RATE_LIMIT_PER_MINUTE", "5", "int", "rate_limiting", "Default user rate limit per minute"},
+		{"USER_RATE_LIMIT_PER_HOUR", "30", "int", "rate_limiting", "Default user rate limit per hour"},
+		{"USER_RATE_LIMIT_PER_DAY", "100", "int", "rate_limiting", "Default user rate limit per day"},
+		{"ADMIN_ROLE_NAMES", "admin", "string", "rate_limiting", "Default admin role names that bypass rate limits"},
+		{"RATE_LIMITING_ENABLED", "true", "bool", "rate_limiting", "Enable user rate limiting by default"},
 
 		// Default feature flags
 		{"BMAD_KB_REFRESH_ENABLED", "true", "bool", "features", "Enable knowledge base refresh functionality by default"},
@@ -229,6 +245,12 @@ func (m *ConfigurationMigrator) SeedDefaultConfigurations(ctx context.Context) e
 		// Default AI service configuration
 		{"OLLAMA_HOST", "http://localhost:11434", "string", "ai_services", "Default Ollama service host"},
 		{"OLLAMA_MODEL", "llama2", "string", "ai_services", "Default Ollama model"},
+
+		// Default channel restrictions
+		{"ALLOWED_CHANNEL_IDS", "", "string", "channel_restrictions", "Default allowed channel IDs (empty = all channels)"},
+		{"CHANNEL_RESTRICTIONS_ENABLED", "false", "bool", "channel_restrictions", "Disable channel restrictions by default"},
+		{"RESTRICT_DMS", "false", "bool", "channel_restrictions", "Allow DMs by default"},
+		{"ADMIN_CHANNEL_BYPASS_ENABLED", "false", "bool", "channel_restrictions", "Disable admin bypass by default"},
 
 		// Default system configuration
 		{"BOT_STATUS_UPDATE_INTERVAL", "5m", "duration", "system", "Default bot status update interval"},

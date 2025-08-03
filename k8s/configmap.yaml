@@ -37,15 +37,15 @@ data:
   REPLY_MENTION_DELETE_MESSAGE: "false"
   
   # Reaction Trigger Configuration
-  REACTION_TRIGGER_ENABLED: "false"
-  REACTION_TRIGGER_EMOJI: "🤖"
+  REACTION_TRIGGER_ENABLED: "true"
+  REACTION_TRIGGER_EMOJI: "❓"
   REACTION_TRIGGER_APPROVED_USER_IDS: ""
-  REACTION_TRIGGER_APPROVED_ROLE_NAMES: ""
-  REACTION_TRIGGER_REQUIRE_REACTION: "true"
+  REACTION_TRIGGER_APPROVED_ROLE_NAMES: "core-team"
+  REACTION_TRIGGER_REQUIRE_REACTION: "false"
   REACTION_TRIGGER_REMOVE_REACTION: "true"
   
   # Forum Channel Configuration (Story 2.14)
-  MONITORED_FORUM_CHANNELS: "1400600574038114395"
+  MONITORED_FORUM_CHANNELS: "1401595976677982438"
   
   # Knowledge Base Configuration
   BMAD_KB_REFRESH_ENABLED: "true"
@@ -57,6 +57,19 @@ data:
   BMAD_STATUS_ROTATION_INTERVAL: "5m"
   BOT_STATUS_UPDATE_ENABLED: "false"
   BOT_STATUS_UPDATE_INTERVAL: "10"
+  
+  # User Rate Limiting Configuration (Story 2.16)
+  USER_RATE_LIMIT_PER_MINUTE: "5"      # Maximum requests per user per minute
+  USER_RATE_LIMIT_PER_HOUR: "30"       # Maximum requests per user per hour  
+  USER_RATE_LIMIT_PER_DAY: "100"       # Maximum requests per user per day
+  ADMIN_ROLE_NAMES: "admin"            # Role names that bypass rate limits (comma-separated)
+  RATE_LIMITING_ENABLED: "true"        # Enable user rate limiting system
+  
+  # Channel Restrictions Configuration (Story 2.16)
+  ALLOWED_CHANNEL_IDS: "1400309928790589621,1401595976677982438,1401618453244412166"              # Allowed channel IDs (empty = all channels, comma-separated)
+  CHANNEL_RESTRICTIONS_ENABLED: "true" # Enable channel restrictions system
+  RESTRICT_DMS: "false"                # Restrict bot usage in DM channels
+  ADMIN_CHANNEL_BYPASS_ENABLED: "false" # Allow admins to bypass channel restrictions
   
   # Logging Configuration
   LOG_LEVEL: "info"

@@ -240,11 +240,12 @@ func main() {
 			DeleteReplyMessage: replyMentionConfig.DeleteReplyMessage,
 		},
 		bot.ReactionTriggerConfig{
-			Enabled:           reactionTriggerConfig.Enabled,
-			TriggerEmoji:      reactionTriggerConfig.TriggerEmoji,
-			ApprovedUserIDs:   reactionTriggerConfig.ApprovedUserIDs,
-			ApprovedRoleNames: reactionTriggerConfig.ApprovedRoleNames,
-			RequireReaction:   reactionTriggerConfig.RequireReaction,
+			Enabled:               reactionTriggerConfig.Enabled,
+			TriggerEmoji:          reactionTriggerConfig.TriggerEmoji,
+			ApprovedUserIDs:       reactionTriggerConfig.ApprovedUserIDs,
+			ApprovedRoleNames:     reactionTriggerConfig.ApprovedRoleNames,
+			RequireReaction:       reactionTriggerConfig.RequireReaction,
+			RemoveTriggerReaction: reactionTriggerConfig.RemoveTriggerReaction,
 		})
 
 	// Configure Forum channel monitoring
