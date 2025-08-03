@@ -1,6 +1,8 @@
 # BMAD Knowledge Bot
 
-A specialized Discord bot built with Go that provides expert knowledge about the BMAD-METHOD framework. The bot answers questions exclusively from the BMAD knowledge base, ensuring accurate and contextual responses about the framework.
+A comprehensive Discord bot built with Go that serves as an intelligent assistant for the BMAD-METHOD framework community. This production-ready bot features advanced user rate limiting, channel restrictions, threaded conversations, and hot-reloadable database configuration management. It integrates seamlessly with AI providers (Ollama, Gemini) to deliver contextual responses while maintaining strict focus on BMAD knowledge base content, complete with citation support and abuse prevention mechanisms.
+
+Developed using the **BMad-Method** itself, this project demonstrates the framework's effectiveness in creating enterprise-grade applications with clean architecture, comprehensive testing, and maintainable code. The bot includes sophisticated features like admin command interfaces for runtime configuration, persistent rate limiting across restarts, emergency bypass controls, and multi-provider AI integration with intelligent fallback handling.
 
 ## Features
 

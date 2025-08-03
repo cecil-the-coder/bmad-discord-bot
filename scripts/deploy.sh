@@ -315,6 +315,10 @@ else
     deploy_with_manifests
 fi
 
+# Force restart to pick up latest image if using :latest tag
+print_status "Restarting deployment to ensure latest image is used..."
+kubectl rollout restart deployment/"$DEPLOYMENT_NAME" -n "$NAMESPACE"
+
 # Wait for deployment to be ready
 wait_for_deployment
 

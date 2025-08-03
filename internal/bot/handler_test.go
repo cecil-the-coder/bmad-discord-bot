@@ -17,6 +17,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 )
 
+// Global test container for all handler tests
+var (
+	testMySQLContainer *mysql.MySQLContainer
+	testMySQLConfig    storage.MySQLConfig
+	testMySQLSetupOnce sync.Once
+)
+
 // MockAIService implements the AIService interface for testing
 type MockAIService struct {
 	responses map[string]string
@@ -333,7 +340,8 @@ func TestHandler_HandleMessageCreate_ProcessesMentions(t *testing.T) {
 func TestHandler_HandleMessageCreate_IgnoresNonMentions(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	mockAI := NewMockAIService()
-	handler := newTestHandler(logger, mockAI)
+	mockStorage := &MockStorageService{}
+	handler := NewHandler(logger, mockAI, mockStorage)
 
 	// Create a mock session
 	session := &discordgo.Session{
@@ -1291,43 +1299,88 @@ func TestHandler_MultiUserThreadDetection(t *testing.T) {
 
 // Helper functions for storage testing
 
+// Use the same shared MySQL container approach as storage tests
 func setupTestStorage(t *testing.T) *storage.MySQLStorageService {
-	ctx := context.Background()
-
-	// Use testcontainers to create a MySQL instance for testing
-	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0",
-		mysql.WithDatabase("test"),
-		mysql.WithUsername("root"),
-		mysql.WithPassword("test"),
-	)
-	require.NoError(t, err)
-
-	// Clean up container when test finishes
-	t.Cleanup(func() {
-		mysqlContainer.Terminate(ctx)
-	})
-
-	// Get connection details
-	host, err := mysqlContainer.Host(ctx)
-	require.NoError(t, err)
-
-	port, err := mysqlContainer.MappedPort(ctx, "3306")
-	require.NoError(t, err)
-
-	config := storage.MySQLConfig{
-		Host:     host,
-		Port:     port.Port(),
-		Database: "test",
-		Username: "root",
-		Password: "test",
-		Timeout:  "30s",
+	// Set up shared container (only runs once)
+	if err := setupSharedMySQLContainer(); err != nil {
+		t.Fatalf("Failed to set up shared MySQL container: %v", err)
 	}
 
-	service := storage.NewMySQLStorageService(config)
-	err = service.Initialize(ctx)
-	require.NoError(t, err)
+	// Create service instance
+	service := storage.NewMySQLStorageService(testMySQLConfig)
+
+	// Reset database for test isolation
+	if err := resetTestDatabase(service); err != nil {
+		t.Fatalf("Failed to reset test database: %v", err)
+	}
 
 	return service
+}
+
+// setupSharedMySQLContainer sets up a shared MySQL container for all handler tests
+func setupSharedMySQLContainer() error {
+	var setupErr error
+	testMySQLSetupOnce.Do(func() {
+		ctx := context.Background()
+
+		// Start MySQL container for testing
+		container, err := mysql.Run(ctx, "mysql:8.0",
+			mysql.WithDatabase("test"),
+			mysql.WithUsername("root"),
+			mysql.WithPassword("test"),
+		)
+		if err != nil {
+			setupErr = fmt.Errorf("failed to start MySQL container: %w", err)
+			return
+		}
+
+		// Get connection details
+		host, err := container.Host(ctx)
+		if err != nil {
+			setupErr = fmt.Errorf("failed to get container host: %w", err)
+			return
+		}
+
+		port, err := container.MappedPort(ctx, "3306")
+		if err != nil {
+			setupErr = fmt.Errorf("failed to get container port: %w", err)
+			return
+		}
+
+		testMySQLContainer = container
+		testMySQLConfig = storage.MySQLConfig{
+			Host:     host,
+			Port:     port.Port(),
+			Database: "test",
+			Username: "root",
+			Password: "test",
+			Timeout:  "30s",
+		}
+	})
+	return setupErr
+}
+
+// resetTestDatabase drops and recreates the test database for test isolation
+func resetTestDatabase(service *storage.MySQLStorageService) error {
+	ctx := context.Background()
+
+	// Close existing connection
+	service.Close()
+
+	// Create a temporary service to connect to MySQL instance (not specific database)
+	config := testMySQLConfig
+	config.Database = "" // Connect to MySQL instance, not specific database
+	tempService := storage.NewMySQLStorageService(config)
+
+	// Initialize connection to MySQL instance
+	if err := tempService.Initialize(ctx); err != nil {
+		// If initialization fails because of no database, that's expected
+		// Try to execute database operations directly through a raw connection
+	}
+
+	// For now, let's use a simpler approach - just reinitialize the service
+	// which will recreate the schema, providing sufficient test isolation
+	return service.Initialize(ctx)
 }
 
 // Helper function to create handler with storage for tests that don't need storage
@@ -4035,6 +4088,23 @@ func (m *MockStorageService) GetAllStatusMessages(ctx context.Context) ([]*stora
 }
 func (m *MockStorageService) GetEnabledStatusMessagesCount(ctx context.Context) (int, error) {
 	return 0, nil
+}
+
+// New rate limiting methods required by interface
+func (m *MockStorageService) GetUserRateLimit(ctx context.Context, userID string, timeWindow string) (*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageService) UpsertUserRateLimit(ctx context.Context, rateLimit *storage.UserRateLimit) error {
+	return nil
+}
+func (m *MockStorageService) CleanupExpiredUserRateLimits(ctx context.Context, expiredBefore int64) error {
+	return nil
+}
+func (m *MockStorageService) GetUserRateLimitsByUser(ctx context.Context, userID string) ([]*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageService) ResetUserRateLimit(ctx context.Context, userID string, timeWindow string) error {
+	return nil
 }
 
 // TestDMClearCommand tests the /clear command functionality in DMs

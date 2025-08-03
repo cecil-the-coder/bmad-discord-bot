@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -467,48 +469,106 @@ func TestMySQLStorageService_ConnectionRetry(t *testing.T) {
 		"Expected error to contain 'failed to connect after' or 'context deadline exceeded', got: %s", errorStr)
 }
 
-func setupTestMySQLStorage(t *testing.T) *MySQLStorageService {
+// Global test container for all MySQL tests in this package
+var (
+	testMySQLContainer *mysql.MySQLContainer
+	testMySQLConfig    MySQLConfig
+	testMySQLSetupOnce sync.Once
+)
+
+// setupSharedMySQLContainer sets up a shared MySQL container for all tests
+func setupSharedMySQLContainer() error {
+	var setupErr error
+	testMySQLSetupOnce.Do(func() {
+		ctx := context.Background()
+
+		// Start MySQL container for testing
+		container, err := mysql.Run(ctx, "mysql:8.0",
+			mysql.WithDatabase("test"),
+			mysql.WithUsername("root"),
+			mysql.WithPassword("test"),
+		)
+		if err != nil {
+			setupErr = fmt.Errorf("failed to start MySQL container: %w", err)
+			return
+		}
+
+		// Get connection details
+		host, err := container.Host(ctx)
+		if err != nil {
+			setupErr = fmt.Errorf("failed to get container host: %w", err)
+			return
+		}
+
+		port, err := container.MappedPort(ctx, "3306")
+		if err != nil {
+			setupErr = fmt.Errorf("failed to get container port: %w", err)
+			return
+		}
+
+		testMySQLContainer = container
+		testMySQLConfig = MySQLConfig{
+			Host:     host,
+			Port:     port.Port(),
+			Database: "test",
+			Username: "root",
+			Password: "test",
+			Timeout:  "30s",
+		}
+	})
+	return setupErr
+}
+
+// resetTestDatabase drops and recreates the test database for test isolation
+func resetTestDatabase(service *MySQLStorageService) error {
 	ctx := context.Background()
 
-	// Start MySQL container for testing
-	mysqlContainer, err := mysql.Run(ctx, "mysql:8.0",
-		mysql.WithDatabase("test"),
-		mysql.WithUsername("root"),
-		mysql.WithPassword("test"),
-	)
+	// Close existing connection
+	service.Close()
+
+	// Connect to MySQL instance (not specific database) to drop/create database
+	config := testMySQLConfig
+	config.Database = "" // Connect to MySQL instance, not specific database
+	tempService := NewMySQLStorageService(config)
+
+	// Connect without initializing (no specific database)
+	db, err := tempService.connectWithRetry(ctx)
 	if err != nil {
-		t.Fatalf("Failed to start MySQL container: %v", err)
+		return fmt.Errorf("failed to connect to MySQL instance: %w", err)
+	}
+	defer db.Close()
+
+	// Drop and recreate the test database
+	if _, err := db.ExecContext(ctx, "DROP DATABASE IF EXISTS test"); err != nil {
+		return fmt.Errorf("failed to drop test database: %w", err)
 	}
 
-	// Clean up container when test finishes
+	if _, err := db.ExecContext(ctx, "CREATE DATABASE test"); err != nil {
+		return fmt.Errorf("failed to create test database: %w", err)
+	}
+
+	// Reinitialize the service with the fresh database
+	return service.Initialize(ctx)
+}
+
+func setupTestMySQLStorage(t *testing.T) *MySQLStorageService {
+	// Set up shared container (only runs once)
+	if err := setupSharedMySQLContainer(); err != nil {
+		t.Fatalf("Failed to set up shared MySQL container: %v", err)
+	}
+
+	// Ensure container cleanup happens when all tests are done
 	t.Cleanup(func() {
-		mysqlContainer.Terminate(ctx)
+		// Only cleanup on the last test - this is tricky to detect perfectly,
+		// but the container will be cleaned up when the process exits anyway
 	})
 
-	// Get connection details
-	host, err := mysqlContainer.Host(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get container host: %v", err)
-	}
+	// Create service instance
+	service := NewMySQLStorageService(testMySQLConfig)
 
-	port, err := mysqlContainer.MappedPort(ctx, "3306")
-	if err != nil {
-		t.Fatalf("Failed to get container port: %v", err)
-	}
-
-	config := MySQLConfig{
-		Host:     host,
-		Port:     port.Port(),
-		Database: "test",
-		Username: "root",
-		Password: "test",
-		Timeout:  "30s",
-	}
-
-	service := NewMySQLStorageService(config)
-	err = service.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Failed to initialize MySQL service: %v", err)
+	// Reset database for test isolation
+	if err := resetTestDatabase(service); err != nil {
+		t.Fatalf("Failed to reset test database: %v", err)
 	}
 
 	return service
@@ -517,4 +577,452 @@ func setupTestMySQLStorage(t *testing.T) *MySQLStorageService {
 // Helper function to create string pointer
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestMySQLStorageService_Configuration(t *testing.T) {
+	service := setupTestMySQLStorage(t)
+	defer service.Close()
+	ctx := context.Background()
+
+	t.Run("GetConfiguration_NotFound", func(t *testing.T) {
+		config, err := service.GetConfiguration(ctx, "nonexistent_key")
+		assert.NoError(t, err)
+		assert.Nil(t, config)
+	})
+
+	t.Run("UpsertConfiguration_Insert", func(t *testing.T) {
+		config := &Configuration{
+			Key:         "test_key",
+			Value:       "test_value",
+			Type:        "string",
+			Category:    "test",
+			Description: "Test configuration",
+		}
+
+		err := service.UpsertConfiguration(ctx, config)
+		assert.NoError(t, err)
+
+		// Verify it was inserted
+		retrieved, err := service.GetConfiguration(ctx, "test_key")
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, "test_key", retrieved.Key)
+		assert.Equal(t, "test_value", retrieved.Value)
+		assert.Equal(t, "string", retrieved.Type)
+		assert.Equal(t, "test", retrieved.Category)
+		assert.Equal(t, "Test configuration", retrieved.Description)
+	})
+
+	t.Run("UpsertConfiguration_Update", func(t *testing.T) {
+		// Insert initial config
+		config := &Configuration{
+			Key:         "update_key",
+			Value:       "initial_value",
+			Type:        "string",
+			Category:    "test",
+			Description: "Initial description",
+		}
+		err := service.UpsertConfiguration(ctx, config)
+		assert.NoError(t, err)
+
+		// Update the config
+		config.Value = "updated_value"
+		config.Description = "Updated description"
+		err = service.UpsertConfiguration(ctx, config)
+		assert.NoError(t, err)
+
+		// Verify it was updated
+		retrieved, err := service.GetConfiguration(ctx, "update_key")
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, "updated_value", retrieved.Value)
+		assert.Equal(t, "Updated description", retrieved.Description)
+	})
+
+	t.Run("GetConfigurationsByCategory", func(t *testing.T) {
+		// Insert multiple configs in same category
+		configs := []*Configuration{
+			{Key: "cat1_key1", Value: "value1", Type: "string", Category: "category1", Description: "Config 1"},
+			{Key: "cat1_key2", Value: "value2", Type: "string", Category: "category1", Description: "Config 2"},
+			{Key: "cat2_key1", Value: "value3", Type: "string", Category: "category2", Description: "Config 3"},
+		}
+
+		for _, config := range configs {
+			err := service.UpsertConfiguration(ctx, config)
+			assert.NoError(t, err)
+		}
+
+		// Get configs by category
+		category1Configs, err := service.GetConfigurationsByCategory(ctx, "category1")
+		assert.NoError(t, err)
+		assert.Len(t, category1Configs, 2)
+
+		category2Configs, err := service.GetConfigurationsByCategory(ctx, "category2")
+		assert.NoError(t, err)
+		assert.Len(t, category2Configs, 1)
+	})
+
+	t.Run("GetAllConfigurations", func(t *testing.T) {
+		// Insert a few configs
+		configs := []*Configuration{
+			{Key: "all1", Value: "value1", Type: "string", Category: "all", Description: "All Config 1"},
+			{Key: "all2", Value: "value2", Type: "int", Category: "all", Description: "All Config 2"},
+		}
+
+		for _, config := range configs {
+			err := service.UpsertConfiguration(ctx, config)
+			assert.NoError(t, err)
+		}
+
+		// Get all configs
+		allConfigs, err := service.GetAllConfigurations(ctx)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(allConfigs), 2)
+	})
+
+	t.Run("DeleteConfiguration", func(t *testing.T) {
+		// Insert config to delete
+		config := &Configuration{
+			Key:         "delete_key",
+			Value:       "delete_value",
+			Type:        "string",
+			Category:    "delete",
+			Description: "To be deleted",
+		}
+		err := service.UpsertConfiguration(ctx, config)
+		assert.NoError(t, err)
+
+		// Delete the config
+		err = service.DeleteConfiguration(ctx, "delete_key")
+		assert.NoError(t, err)
+
+		// Verify it was deleted
+		retrieved, err := service.GetConfiguration(ctx, "delete_key")
+		assert.NoError(t, err)
+		assert.Nil(t, retrieved)
+
+		// Try to delete non-existent config
+		err = service.DeleteConfiguration(ctx, "nonexistent")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestMySQLStorageService_StatusMessages(t *testing.T) {
+	service := setupTestMySQLStorage(t)
+	defer service.Close()
+	ctx := context.Background()
+
+	t.Run("AddStatusMessage", func(t *testing.T) {
+		err := service.AddStatusMessage(ctx, "playing", "Test Game", true)
+		assert.NoError(t, err)
+	})
+
+	t.Run("GetAllStatusMessages", func(t *testing.T) {
+		// Add a few messages
+		err := service.AddStatusMessage(ctx, "listening", "Test Music", true)
+		assert.NoError(t, err)
+		err = service.AddStatusMessage(ctx, "watching", "Test Video", false)
+		assert.NoError(t, err)
+
+		messages, err := service.GetAllStatusMessages(ctx)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(messages), 2)
+	})
+
+	t.Run("GetStatusMessagesBatch", func(t *testing.T) {
+		// Add enabled message
+		err := service.AddStatusMessage(ctx, "competing", "Test Competition", true)
+		assert.NoError(t, err)
+
+		messages, err := service.GetStatusMessagesBatch(ctx, 5)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(messages), 1)
+
+		// All returned messages should be enabled
+		for _, msg := range messages {
+			assert.True(t, msg.Enabled)
+		}
+	})
+
+	t.Run("GetEnabledStatusMessagesCount", func(t *testing.T) {
+		count, err := service.GetEnabledStatusMessagesCount(ctx)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, count, 0)
+	})
+
+	t.Run("UpdateStatusMessage", func(t *testing.T) {
+		// Add a message first
+		err := service.AddStatusMessage(ctx, "playing", "Update Test", true)
+		assert.NoError(t, err)
+
+		// Get all messages to find the ID
+		messages, err := service.GetAllStatusMessages(ctx)
+		assert.NoError(t, err)
+		require.Greater(t, len(messages), 0)
+
+		// Find our test message
+		var testMessage *StatusMessage
+		for _, msg := range messages {
+			if msg.StatusText == "Update Test" {
+				testMessage = msg
+				break
+			}
+		}
+		require.NotNil(t, testMessage)
+
+		// Update it to disabled
+		err = service.UpdateStatusMessage(ctx, testMessage.ID, false)
+		assert.NoError(t, err)
+
+		// Verify the update
+		messages, err = service.GetAllStatusMessages(ctx)
+		assert.NoError(t, err)
+
+		var updatedMessage *StatusMessage
+		for _, msg := range messages {
+			if msg.ID == testMessage.ID {
+				updatedMessage = msg
+				break
+			}
+		}
+		require.NotNil(t, updatedMessage)
+		assert.False(t, updatedMessage.Enabled)
+	})
+}
+
+func TestMySQLStorageService_UserRateLimit(t *testing.T) {
+	service := setupTestMySQLStorage(t)
+	defer service.Close()
+	ctx := context.Background()
+
+	userID := "user123"
+	timeWindow := "minute"
+
+	t.Run("GetUserRateLimit_NotFound", func(t *testing.T) {
+		rateLimit, err := service.GetUserRateLimit(ctx, userID, timeWindow)
+		assert.NoError(t, err)
+		assert.Nil(t, rateLimit)
+	})
+
+	t.Run("UpsertUserRateLimit_Insert", func(t *testing.T) {
+		now := time.Now()
+		rateLimit := &UserRateLimit{
+			UserID:          userID,
+			TimeWindow:      timeWindow,
+			RequestCount:    1,
+			WindowStartTime: now.Unix(),
+			LastRequestTime: now.Unix(),
+		}
+
+		err := service.UpsertUserRateLimit(ctx, rateLimit)
+		assert.NoError(t, err)
+
+		// Verify it was inserted
+		retrieved, err := service.GetUserRateLimit(ctx, userID, timeWindow)
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, userID, retrieved.UserID)
+		assert.Equal(t, timeWindow, retrieved.TimeWindow)
+		assert.Equal(t, 1, retrieved.RequestCount)
+	})
+
+	t.Run("UpsertUserRateLimit_Update", func(t *testing.T) {
+		now := time.Now()
+		rateLimit := &UserRateLimit{
+			UserID:          userID,
+			TimeWindow:      timeWindow,
+			RequestCount:    5,
+			WindowStartTime: now.Unix(),
+			LastRequestTime: now.Unix(),
+		}
+
+		err := service.UpsertUserRateLimit(ctx, rateLimit)
+		assert.NoError(t, err)
+
+		// Verify it was updated
+		retrieved, err := service.GetUserRateLimit(ctx, userID, timeWindow)
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, 5, retrieved.RequestCount)
+	})
+
+	t.Run("GetUserRateLimitsByUser", func(t *testing.T) {
+		// Insert additional time windows
+		hourLimit := &UserRateLimit{
+			UserID:          userID,
+			TimeWindow:      "hour",
+			RequestCount:    10,
+			WindowStartTime: time.Now().Unix(),
+			LastRequestTime: time.Now().Unix(),
+		}
+		err := service.UpsertUserRateLimit(ctx, hourLimit)
+		assert.NoError(t, err)
+
+		dayLimit := &UserRateLimit{
+			UserID:          userID,
+			TimeWindow:      "day",
+			RequestCount:    25,
+			WindowStartTime: time.Now().Unix(),
+			LastRequestTime: time.Now().Unix(),
+		}
+		err = service.UpsertUserRateLimit(ctx, dayLimit)
+		assert.NoError(t, err)
+
+		// Get all rate limits for user
+		rateLimits, err := service.GetUserRateLimitsByUser(ctx, userID)
+		assert.NoError(t, err)
+		assert.Len(t, rateLimits, 3) // minute, hour, and day
+
+		// Verify all are present
+		timeWindows := make(map[string]int)
+		for _, rl := range rateLimits {
+			timeWindows[rl.TimeWindow] = rl.RequestCount
+		}
+		assert.Equal(t, 5, timeWindows["minute"])
+		assert.Equal(t, 10, timeWindows["hour"])
+		assert.Equal(t, 25, timeWindows["day"])
+	})
+
+	t.Run("ResetUserRateLimit_Specific", func(t *testing.T) {
+		err := service.ResetUserRateLimit(ctx, userID, "minute")
+		assert.NoError(t, err)
+
+		// Verify minute was deleted but others remain
+		minuteLimit, err := service.GetUserRateLimit(ctx, userID, "minute")
+		assert.NoError(t, err)
+		assert.Nil(t, minuteLimit)
+
+		hourLimit, err := service.GetUserRateLimit(ctx, userID, "hour")
+		assert.NoError(t, err)
+		assert.NotNil(t, hourLimit)
+		assert.Equal(t, 10, hourLimit.RequestCount)
+	})
+
+	t.Run("CleanupExpiredUserRateLimits", func(t *testing.T) {
+		// Insert old rate limit
+		oldTime := time.Now().Add(-24 * time.Hour)
+		oldRateLimit := &UserRateLimit{
+			UserID:          "old_user",
+			TimeWindow:      "minute",
+			RequestCount:    1,
+			WindowStartTime: oldTime.Unix(),
+			LastRequestTime: oldTime.Unix(),
+		}
+		err := service.UpsertUserRateLimit(ctx, oldRateLimit)
+		assert.NoError(t, err)
+
+		// Insert recent rate limit
+		recentRateLimit := &UserRateLimit{
+			UserID:          "recent_user",
+			TimeWindow:      "minute",
+			RequestCount:    1,
+			WindowStartTime: time.Now().Unix(),
+			LastRequestTime: time.Now().Unix(),
+		}
+		err = service.UpsertUserRateLimit(ctx, recentRateLimit)
+		assert.NoError(t, err)
+
+		// Cleanup old records (older than 1 hour ago)
+		expiredBefore := time.Now().Add(-1 * time.Hour).Unix()
+		err = service.CleanupExpiredUserRateLimits(ctx, expiredBefore)
+		assert.NoError(t, err)
+
+		// Verify old record was deleted
+		oldRetrieved, err := service.GetUserRateLimit(ctx, "old_user", "minute")
+		assert.NoError(t, err)
+		assert.Nil(t, oldRetrieved)
+
+		// Verify recent record still exists
+		recentRetrieved, err := service.GetUserRateLimit(ctx, "recent_user", "minute")
+		assert.NoError(t, err)
+		assert.NotNil(t, recentRetrieved)
+	})
+
+	t.Run("GetUserRateLimitsByUser_EmptyResult", func(t *testing.T) {
+		rateLimits, err := service.GetUserRateLimitsByUser(ctx, "nonexistent_user")
+		assert.NoError(t, err)
+		assert.Empty(t, rateLimits)
+	})
+}
+
+func TestMySQLStorageService_UserRateLimit_EdgeCases(t *testing.T) {
+	service := setupTestMySQLStorage(t)
+	defer service.Close()
+	ctx := context.Background()
+
+	t.Run("UpsertUserRateLimit_ZeroValues", func(t *testing.T) {
+		rateLimit := &UserRateLimit{
+			UserID:          "zero_user",
+			TimeWindow:      "minute",
+			RequestCount:    0,
+			WindowStartTime: 0,
+			LastRequestTime: 0,
+		}
+
+		err := service.UpsertUserRateLimit(ctx, rateLimit)
+		assert.NoError(t, err)
+
+		retrieved, err := service.GetUserRateLimit(ctx, "zero_user", "minute")
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, 0, retrieved.RequestCount)
+		assert.Equal(t, int64(0), retrieved.WindowStartTime)
+	})
+
+	t.Run("ResetUserRateLimit_Nonexistent", func(t *testing.T) {
+		err := service.ResetUserRateLimit(ctx, "nonexistent_user", "minute")
+		assert.NoError(t, err) // Should not error even if nothing to delete
+	})
+
+	t.Run("UpsertUserRateLimit_LongUserID", func(t *testing.T) {
+		longUserID := strings.Repeat("x", 100) // Test with very long user ID
+		rateLimit := &UserRateLimit{
+			UserID:          longUserID,
+			TimeWindow:      "hour",
+			RequestCount:    50,
+			WindowStartTime: time.Now().Unix(),
+			LastRequestTime: time.Now().Unix(),
+		}
+
+		err := service.UpsertUserRateLimit(ctx, rateLimit)
+		assert.NoError(t, err)
+
+		retrieved, err := service.GetUserRateLimit(ctx, longUserID, "hour")
+		assert.NoError(t, err)
+		assert.NotNil(t, retrieved)
+		assert.Equal(t, longUserID, retrieved.UserID)
+		assert.Equal(t, 50, retrieved.RequestCount)
+	})
+
+	t.Run("MultipleTimeWindows_SameUser", func(t *testing.T) {
+		userID := "multi_window_user"
+		windows := []string{"minute", "hour", "day"}
+
+		// Insert rate limits for all time windows
+		for i, window := range windows {
+			rateLimit := &UserRateLimit{
+				UserID:          userID,
+				TimeWindow:      window,
+				RequestCount:    (i + 1) * 10,
+				WindowStartTime: time.Now().Unix(),
+				LastRequestTime: time.Now().Unix(),
+			}
+			err := service.UpsertUserRateLimit(ctx, rateLimit)
+			assert.NoError(t, err)
+		}
+
+		// Verify all were inserted
+		for i, window := range windows {
+			retrieved, err := service.GetUserRateLimit(ctx, userID, window)
+			assert.NoError(t, err)
+			assert.NotNil(t, retrieved)
+			assert.Equal(t, (i+1)*10, retrieved.RequestCount)
+		}
+
+		// Get all for user
+		allLimits, err := service.GetUserRateLimitsByUser(ctx, userID)
+		assert.NoError(t, err)
+		assert.Len(t, allLimits, 3)
+	})
 }

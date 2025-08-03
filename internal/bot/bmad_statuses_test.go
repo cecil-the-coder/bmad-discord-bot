@@ -82,6 +82,23 @@ func (m *MockStorageForStatusTest) GetEnabledStatusMessagesCount(ctx context.Con
 	return len(m.statusMessages), nil
 }
 
+// New rate limiting methods required by interface
+func (m *MockStorageForStatusTest) GetUserRateLimit(ctx context.Context, userID string, timeWindow string) (*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageForStatusTest) UpsertUserRateLimit(ctx context.Context, rateLimit *storage.UserRateLimit) error {
+	return nil
+}
+func (m *MockStorageForStatusTest) CleanupExpiredUserRateLimits(ctx context.Context, expiredBefore int64) error {
+	return nil
+}
+func (m *MockStorageForStatusTest) GetUserRateLimitsByUser(ctx context.Context, userID string) ([]*storage.UserRateLimit, error) {
+	return nil, nil
+}
+func (m *MockStorageForStatusTest) ResetUserRateLimit(ctx context.Context, userID string, timeWindow string) error {
+	return nil
+}
+
 func TestStatusManager_LoadNextBatch(t *testing.T) {
 	// Create mock storage with test data
 	mockStorage := &MockStorageForStatusTest{
