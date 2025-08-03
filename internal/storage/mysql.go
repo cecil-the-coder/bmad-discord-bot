@@ -232,6 +232,19 @@ func (s *MySQLStorageService) createTables(ctx context.Context) error {
 			INDEX idx_enabled (enabled),
 			INDEX idx_activity_type (activity_type)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_rate_limits (
+			id BIGINT PRIMARY KEY AUTO_INCREMENT,
+			user_id VARCHAR(255) NOT NULL,
+			time_window VARCHAR(20) NOT NULL,
+			request_count INT NOT NULL DEFAULT 0,
+			window_start_time BIGINT NOT NULL,
+			last_request_time BIGINT NOT NULL,
+			created_at BIGINT NOT NULL,
+			updated_at BIGINT NOT NULL,
+			UNIQUE KEY unique_user_window (user_id, time_window),
+			INDEX idx_user_id (user_id),
+			INDEX idx_window_start_time (window_start_time)
+		)`,
 		`CREATE INDEX idx_message_states_channel_thread ON message_states(channel_id, thread_id)`,
 		`CREATE INDEX idx_message_states_timestamp ON message_states(last_seen_timestamp)`,
 		`CREATE INDEX idx_thread_ownerships_thread_id ON thread_ownerships(thread_id)`,
@@ -373,6 +386,34 @@ func (s *MySQLStorageService) prepareStatements() error {
 			SELECT COUNT(*)
 			FROM bot_status_messages
 			WHERE enabled = TRUE
+		`,
+		"get_user_rate_limit": `
+			SELECT id, user_id, time_window, request_count, window_start_time, last_request_time, created_at, updated_at
+			FROM user_rate_limits
+			WHERE user_id = ? AND time_window = ?
+		`,
+		"upsert_user_rate_limit": `
+			INSERT INTO user_rate_limits (user_id, time_window, request_count, window_start_time, last_request_time, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE
+			request_count = VALUES(request_count),
+			window_start_time = VALUES(window_start_time),
+			last_request_time = VALUES(last_request_time),
+			updated_at = VALUES(updated_at)
+		`,
+		"cleanup_expired_user_rate_limits": `
+			DELETE FROM user_rate_limits
+			WHERE window_start_time < ?
+		`,
+		"get_user_rate_limits_by_user": `
+			SELECT id, user_id, time_window, request_count, window_start_time, last_request_time, created_at, updated_at
+			FROM user_rate_limits
+			WHERE user_id = ?
+			ORDER BY time_window
+		`,
+		"reset_user_rate_limit": `
+			DELETE FROM user_rate_limits
+			WHERE user_id = ? AND time_window = ?
 		`,
 	}
 
@@ -1010,4 +1051,125 @@ func (s *MySQLStorageService) GetEnabledStatusMessagesCount(ctx context.Context)
 	}
 
 	return count, nil
+}
+
+// GetUserRateLimit retrieves rate limit state for a user and time window
+func (s *MySQLStorageService) GetUserRateLimit(ctx context.Context, userID string, timeWindow string) (*UserRateLimit, error) {
+	stmt := s.prepared["get_user_rate_limit"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_user_rate_limit statement not prepared")
+	}
+
+	var rateLimit UserRateLimit
+	err := stmt.QueryRowContext(ctx, userID, timeWindow).Scan(
+		&rateLimit.ID,
+		&rateLimit.UserID,
+		&rateLimit.TimeWindow,
+		&rateLimit.RequestCount,
+		&rateLimit.WindowStartTime,
+		&rateLimit.LastRequestTime,
+		&rateLimit.CreatedAt,
+		&rateLimit.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil // No rate limit record found
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user rate limit: %w", err)
+	}
+
+	return &rateLimit, nil
+}
+
+// UpsertUserRateLimit creates or updates user rate limit state
+func (s *MySQLStorageService) UpsertUserRateLimit(ctx context.Context, rateLimit *UserRateLimit) error {
+	stmt := s.prepared["upsert_user_rate_limit"]
+	if stmt == nil {
+		return fmt.Errorf("upsert_user_rate_limit statement not prepared")
+	}
+
+	now := time.Now().Unix()
+	_, err := stmt.ExecContext(ctx,
+		rateLimit.UserID,
+		rateLimit.TimeWindow,
+		rateLimit.RequestCount,
+		rateLimit.WindowStartTime,
+		rateLimit.LastRequestTime,
+		now, // created_at
+		now, // updated_at
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert user rate limit: %w", err)
+	}
+
+	return nil
+}
+
+// CleanupExpiredUserRateLimits removes expired rate limit records
+func (s *MySQLStorageService) CleanupExpiredUserRateLimits(ctx context.Context, expiredBefore int64) error {
+	stmt := s.prepared["cleanup_expired_user_rate_limits"]
+	if stmt == nil {
+		return fmt.Errorf("cleanup_expired_user_rate_limits statement not prepared")
+	}
+
+	_, err := stmt.ExecContext(ctx, expiredBefore)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup expired user rate limits: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserRateLimitsByUser retrieves all rate limit records for a user
+func (s *MySQLStorageService) GetUserRateLimitsByUser(ctx context.Context, userID string) ([]*UserRateLimit, error) {
+	stmt := s.prepared["get_user_rate_limits_by_user"]
+	if stmt == nil {
+		return nil, fmt.Errorf("get_user_rate_limits_by_user statement not prepared")
+	}
+
+	rows, err := stmt.QueryContext(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user rate limits: %w", err)
+	}
+	defer rows.Close()
+
+	var rateLimits []*UserRateLimit
+	for rows.Next() {
+		var rateLimit UserRateLimit
+		err := rows.Scan(
+			&rateLimit.ID,
+			&rateLimit.UserID,
+			&rateLimit.TimeWindow,
+			&rateLimit.RequestCount,
+			&rateLimit.WindowStartTime,
+			&rateLimit.LastRequestTime,
+			&rateLimit.CreatedAt,
+			&rateLimit.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan user rate limit: %w", err)
+		}
+		rateLimits = append(rateLimits, &rateLimit)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating user rate limits: %w", err)
+	}
+
+	return rateLimits, nil
+}
+
+// ResetUserRateLimit resets rate limiting for a specific user and time window
+func (s *MySQLStorageService) ResetUserRateLimit(ctx context.Context, userID string, timeWindow string) error {
+	stmt := s.prepared["reset_user_rate_limit"]
+	if stmt == nil {
+		return fmt.Errorf("reset_user_rate_limit statement not prepared")
+	}
+
+	_, err := stmt.ExecContext(ctx, userID, timeWindow)
+	if err != nil {
+		return fmt.Errorf("failed to reset user rate limit: %w", err)
+	}
+
+	return nil
 }

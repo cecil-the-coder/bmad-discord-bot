@@ -1487,6 +1487,11 @@ func (h *Handler) RecoverMissedMessages(s *discordgo.Session, recoveryWindowMinu
 		return nil
 	}
 
+	if s == nil {
+		h.logger.Warn("Discord session not available, skipping message recovery")
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

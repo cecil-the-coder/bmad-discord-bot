@@ -49,6 +49,18 @@ type StatusMessage struct {
 	UpdatedAt    int64  `db:"updated_at"`    // Record last update timestamp
 }
 
+// UserRateLimit represents user rate limiting state stored in the database
+type UserRateLimit struct {
+	ID              int64  `db:"id"`                // Primary key, auto-increment
+	UserID          string `db:"user_id"`           // Discord user ID (required)
+	TimeWindow      string `db:"time_window"`       // Time window: 'minute', 'hour', 'day'
+	RequestCount    int    `db:"request_count"`     // Number of requests in current window
+	WindowStartTime int64  `db:"window_start_time"` // Unix timestamp when current window started
+	LastRequestTime int64  `db:"last_request_time"` // Unix timestamp of last request
+	CreatedAt       int64  `db:"created_at"`        // Record creation timestamp
+	UpdatedAt       int64  `db:"updated_at"`        // Record last update timestamp
+}
+
 // StorageService defines the interface for message state persistence operations
 type StorageService interface {
 	// Initialize sets up the database connection and creates necessary tables
@@ -113,4 +125,19 @@ type StorageService interface {
 
 	// GetEnabledStatusMessagesCount returns the count of enabled status messages
 	GetEnabledStatusMessagesCount(ctx context.Context) (int, error)
+
+	// GetUserRateLimit retrieves rate limit state for a user and time window
+	GetUserRateLimit(ctx context.Context, userID string, timeWindow string) (*UserRateLimit, error)
+
+	// UpsertUserRateLimit creates or updates user rate limit state
+	UpsertUserRateLimit(ctx context.Context, rateLimit *UserRateLimit) error
+
+	// CleanupExpiredUserRateLimits removes expired rate limit records
+	CleanupExpiredUserRateLimits(ctx context.Context, expiredBefore int64) error
+
+	// GetUserRateLimitsByUser retrieves all rate limit records for a user
+	GetUserRateLimitsByUser(ctx context.Context, userID string) ([]*UserRateLimit, error)
+
+	// ResetUserRateLimit resets rate limiting for a specific user and time window
+	ResetUserRateLimit(ctx context.Context, userID string, timeWindow string) error
 }
